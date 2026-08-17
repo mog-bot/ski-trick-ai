@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ski Trick AI</title>
+  <style>
+    body{margin:0;background:#f5f5f7;color:#1d1d1f;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;display:grid;place-items:center;min-height:100vh}
+    .loader{text-align:center;padding:32px}.loader strong{font-size:1.25rem}.loader p{color:#6e6e73}
+  </style>
+</head>
+<body>
+  <div class="loader"><strong>Loading Ski Trick AI…</strong><p id="status">Preparing the app.</p></div>
+  <script>
+    (async()=>{
+      try{
+        const parts=Array.from({length:8},(_,i)=>`app/part-${String(i+1).padStart(2,"0")}.txt`);
+        const responses=await Promise.all(parts.map(p=>fetch(p,{cache:"no-store"})));
+        const failed=responses.findIndex(r=>!r.ok);
+        if(failed!==-1) throw new Error(`Could not load ${parts[failed]}`);
+        const html=(await Promise.all(responses.map(r=>r.text()))).join("");
+        document.open();
+        document.write(html);
+        document.close();
+      }catch(err){
+        document.getElementById("status").textContent="The app could not load: "+err.message;
+      }
+    })();
+  </script>
+</body>
+</html>
