@@ -1,0 +1,273 @@
+<0)&&(o3*o4<0)) ? 1 : 0;
+
+  return {
+    leftAngle:left.angle,rightAngle:right.angle,separation,crossing,parallelness,
+    leftVisibility:left.visibility,rightVisibility:right.visibility,left,right
+  };
+}
+
+async function initPose(){
+  try{
+    const vision = await FilesetResolver.forVisionTasks(WASM_URL);
+    poseLandmarker = await PoseLandmarker.createFromOptions(vision,{
+      baseOptions:{modelAssetPath:MODEL_URL,delegate:"GPU"},
+      runningMode:"VIDEO",
+      numPoses:1,
+      minPoseDetectionConfidence:0.35,
+      minPosePresenceConfidence:0.35,
+      minTrackingConfidence:0.35
+    });
+    $("trainStatus").textContent =
+      "Pose tracker ready. Label a trick and select training videos.";
+    $("processBtn").disabled = false;
+    updateFolderImportState();
+  }catch(err){
+    // Fallback to CPU because some browsers/devices reject the GPU delegate.
+    try{
+      const vision = await FilesetResolver.forVisionTasks(WASM_URL);
+      poseLandmarker = await PoseLandmarker.createFromOptions(vision,{
+        baseOptions:{modelAssetPath:MODEL_URL},
+        runningMode:"VIDEO",numPoses:1,
+        minPoseDetectionConfidence:0.35,
+        minPosePresenceConfidence:0.35,
+        minTrackingConfidence:0.35
+      });
+      $("trainStatus").textContent =
+        "Pose tracker ready (CPU mode). Label a trick and select training videos.";
+      $("processBtn").disabled = false;
+      updateFolderImportState();
+    }catch(err2){
+      $("trainStatus").textContent =
+        "Could not load MediaPipe Pose.\nCheck your internet connection and open this page in a current Chrome/Edge browser.\n" + err2.message;
+    }
+  }
+}
+initPose();
+
+function setBusy(v){
+  busy=v;
+  $("processBtn").disabled = v || !poseLandmarker;
+  if($("importFolderBtn")) $("importFolderBtn").disabled = v;
+  $("trainBtn").disabled = v || new Set(dataset.map(x=>x.label)).size < 2;
+  $("predictBtn").disabled = v || !model || modelDatasetRevision !== datasetRevision;
+  $("exportBtn").disabled = v || dataset.length===0;
+  $("confirmGuessBtn").disabled = v || !lastAnalysis;
+  $("correctGuessBtn").disabled = v || !lastAnalysis;
+}
+
+function markDatasetChanged(message){
+  datasetRevision++;
+  lastAnalysis = null;
+  $("feedbackPanel").style.display="none";
+  if(model){
+    model.dispose();
+    model=null;
+    modelDatasetRevision=-1;
+  }
+  if(message) $("predictStatus").textContent=message;
+  setBusy(busy);
+}
+
+function refreshCorrectionOptions(){
+  const select=$("correctionSelect");
+  const labels=[...new Set(dataset.map(x=>x.label))].sort();
+  select.innerHTML=labels.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("");
+}
+
+function waitEvent(el,event){
+  return new Promise((resolve,reject)=>{
+    const ok=()=>{clean();resolve()};
+    const bad=()=>{clean();reject(new Error("Video could not be decoded."))};
+    const clean=()=>{el.removeEventListener(event,ok);el.removeEventListener("error",bad)};
+    el.addEventListener(event,ok,{once:true});
+    el.addEventListener("error",bad,{once:true});
+  });
+}
+async function loadWorker(file){
+  const url=URL.createObjectURL(file);
+  workerVideo.src=url; workerVideo.load();
+  await waitEvent(workerVideo,"loadedmetadata");
+  return url;
+}
+async function seekWorker(t){
+  t=clamp(t,0,Math.max(0,workerVideo.duration-.002));
+  if(Math.abs(workerVideo.currentTime-t)<.002) return;
+  workerVideo.currentTime=t;
+  await waitEvent(workerVideo,"seeked");
+}
+
+function normalizePose(pose){
+  const hipCenter=mid(pose[23],pose[24]);
+  let scale=dist3(pose[11],pose[12]);
+  // torso size is safer when shoulders are foreshortened.
+  const shoulderCenter=mid(pose[11],pose[12]);
+  scale=Math.max(scale,dist3(shoulderCenter,hipCenter),0.03);
+
+  return IMPORTANT.map(idx=>{
+    const p=pose[idx];
+    return {
+      x:(p.x-hipCenter.x)/scale,
+      y:(p.y-hipCenter.y)/scale,
+      z:((p.z||0)-hipCenter.z)/scale,
+      v:clamp(p.visibility ?? 0,0,1)
+    };
+  });
+}
+
+function poseQuality(pose){
+  const vals=IMPORTANT.map(i=>clamp(pose[i]?.visibility ?? 0,0,1));
+  return vals.reduce((a,b)=>a+b,0)/vals.length;
+}
+
+function interpolateMissing(frames){
+  // frames elements are either {norm, raw, quality} or null.
+  const out=frames.slice();
+  const valid=out.map((x,i)=>x?i:-1).filter(i=>i>=0);
+  if(!valid.length) return out;
+
+  // Fill leading/trailing missing with nearest valid pose.
+  for(let i=0;i<valid[0];i++) out[i]=structuredClone(out[valid[0]]);
+  for(let i=valid[valid.length-1]+1;i<out.length;i++) out[i]=structuredClone(out[valid[valid.length-1]]);
+
+  for(let k=0;k<valid.length-1;k++){
+    const a=valid[k], b=valid[k+1];
+    if(b===a+1) continue;
+    for(let i=a+1;i<b;i++){
+      const r=(i-a)/(b-a);
+      const A=out[a],B=out[b];
+      const norm=A.norm.map((p,j)=>({
+        x:p.x+(B.norm[j].x-p.x)*r,
+        y:p.y+(B.norm[j].y-p.y)*r,
+        z:p.z+(B.norm[j].z-p.z)*r,
+        v:Math.min(p.v,B.norm[j].v)*0.6
+      }));
+      out[i]={norm,raw:A.raw,quality:Math.min(A.quality,B.quality)*0.6,interpolated:true,
+        torso:A.torso+(wrapAngle(B.torso-A.torso))*r,
+        shoulder:A.shoulder+(wrapAngle(B.shoulder-A.shoulder))*r,
+        hip:A.hip+(wrapAngle(B.hip-A.hip))*r};
+    }
+  }
+  return out;
+}
+
+function sequenceFeatures(frames){
+  // Returns [time][features]. Important landmark order is fixed.
+  const out=[];
+  let prev=null;
+  let prevTorso=null,prevShoulder=null,prevHip=null,prevLeftSki=null,prevRightSki=null;
+
+  for(let t=0;t<frames.length;t++){
+    const f=frames[t];
+    const feat=[];
+
+    for(let j=0;j<f.norm.length;j++){
+      const p=f.norm[j];
+      const q=prev ? prev.norm[j] : p;
+      feat.push(
+        clamp(p.x,-5,5), clamp(p.y,-5,5), clamp(p.z,-5,5), p.v,
+        clamp(p.x-q.x,-2,2), clamp(p.y-q.y,-2,2), clamp(p.z-q.z,-2,2)
+      );
+    }
+
+    const ta=f.torso, sa=f.shoulder, ha=f.hip;
+    const dta=prevTorso===null?0:wrapAngle(ta-prevTorso);
+    const dsa=prevShoulder===null?0:wrapAngle(sa-prevShoulder);
+    const dha=prevHip===null?0:wrapAngle(ha-prevHip);
+
+    const skis = f.skis || skiFeaturesFromPose(f.raw);
+    const la = skis.leftAngle || 0;
+    const ra = skis.rightAngle || 0;
+    const dla = prevLeftSki===null ? 0 : wrapAngle(la-prevLeftSki);
+    const dra = prevRightSki===null ? 0 : wrapAngle(ra-prevRightSki);
+
+    feat.push(
+      Math.sin(ta),Math.cos(ta),dta,
+      Math.sin(sa),Math.cos(sa),dsa,
+      Math.sin(ha),Math.cos(ha),dha,
+      f.quality,
+      f.interpolated?1:0,
+      Math.sin(la),Math.cos(la),dla,
+      Math.sin(ra),Math.cos(ra),dra,
+      clamp(skis.separation,0,2),
+      skis.crossing,
+      skis.parallelness,
+      skis.leftVisibility,
+      skis.rightVisibility
+    );
+
+    out.push(feat);
+    prev=f; prevTorso=ta; prevShoulder=sa; prevHip=ha;
+    prevLeftSki=la; prevRightSki=ra;
+  }
+  return out;
+}
+
+async function extractSequence(file,steps,onProgress){
+  const url=await loadWorker(file);
+  const dur=workerVideo.duration;
+  if(!isFinite(dur)||dur<=0){URL.revokeObjectURL(url);throw new Error("Invalid video duration")}
+
+  const frames=[];
+  let detected=0, qualitySum=0;
+  const start=dur*.03,end=dur*.97;
+
+  // MediaPipe VIDEO timestamps must increase monotonically across every call.
+  for(let i=0;i<steps;i++){
+    const time=steps===1?dur/2:start+(end-start)*(i/(steps-1));
+    await seekWorker(time);
+    let result=null;
+    try{
+      result=poseLandmarker.detectForVideo(workerVideo,nextInferenceTimestamp());
+    }catch(e){
+      result=null;
+    }
+    if(result?.landmarks?.length){
+      const raw=result.landmarks[0];
+      const q=poseQuality(raw);
+      const skis = skiFeaturesFromPose(raw);
+      frames.push({
+        raw,
+        norm:normalizePose(raw),
+        quality:q,
+        torso:torsoAngle(raw),
+        shoulder:shoulderAngle(raw),
+        hip:hipAngle(raw),
+        skis,
+        interpolated:false
+      });
+      detected++;
+      qualitySum+=q;
+    }else{
+      frames.push(null);
+    }
+    if(onProgress) onProgress(i+1,steps,detected);
+    await tf.nextFrame();
+  }
+
+  URL.revokeObjectURL(url);
+  const detectionRate=detected/steps;
+  const avgQuality=detected?qualitySum/detected:0;
+
+  if(detected < Math.max(4,Math.floor(steps*.25))){
+    throw new Error(`Pose found in only ${detected}/${steps} samples. Use a closer/clearer skier or trim the clip.`);
+  }
+
+  const filled=interpolateMissing(frames);
+  const sequence=sequenceFeatures(filled);
+  return {sequence,detectionRate,avgQuality,frames:filled};
+}
+
+function renderDataset(){
+  const holder=$("dataset");
+  const groups={};
+  dataset.forEach(s=>{
+    if(!groups[s.label])groups[s.label]=[];
+    groups[s.label].push(s);
+  });
+  if(!dataset.length){
+    holder.innerHTML='<div class="help">No tracked training clips yet.</div>';
+  }else{
+    holder.innerHTML=Object.keys(groups).sort().map(label=>{
+      const arr=groups[label];
+      const q=arr.reduce((s,x)=>s+x.quality,0)/arr.length;
+      return `<div class="item"><div><strong>${esc(label)}</strong><small>${arr.length} clips · avg tracking ${(q*100).toFixed(0)}%</small></div><span class="pill">${ar
