@@ -1,0 +1,249 @@
+total;
+  $("lineDuration").textContent=duration.toFixed(1)+"s";
+
+  if(!tricks.length){
+    results.innerHTML='<div class="help">No clear trick windows were detected. Try lowering the sensitivity, or use a clip with the skier more visible.</div>';
+  }
+}
+
+
+async function analyzeLineForCompetition(file,statusPrefix){
+  const scan=await scanFullLine(file,(n,total,found)=>{
+    $("versusStatus").textContent=`${statusPrefix}: scanning ${n}/${total} samples · pose found ${found}/${n}`;
+  });
+
+  const energies=[];
+  for(let i=0;i<scan.frames.length;i++){
+    energies.push(i===0?0:frameMotionEnergy(scan.frames[i-1],scan.frames[i]));
+  }
+
+  const smooth=energies.map((_,i)=>{
+    let s=0,n=0;
+    for(let j=Math.max(0,i-1);j<=Math.min(energies.length-1,i+1);j++){
+      s+=energies[j]; n++;
+    }
+    return s/n;
+  });
+
+  const sensitivity=clamp(Number($("lineSensitivity")?.value)||1.2,0.5,3);
+  const threshold=robustThreshold(smooth,sensitivity);
+  const activeTimes=[];
+  for(let i=0;i<smooth.length;i++){
+    if(smooth[i]>threshold) activeTimes.push(scan.frames[i].time);
+  }
+
+  const windows=mergeMotionWindows(activeTimes,scan.duration);
+  const tricks=[];
+
+  for(let i=0;i<windows.length;i++){
+    const w=windows[i];
+    $("versusStatus").textContent=`${statusPrefix}: classifying trick ${i+1}/${windows.length}`;
+    const prediction=await classifyWindow(scan.frames,w.start,w.end);
+    if(prediction && prediction.best.p>=0.34){
+      const identifiedTrick=prediction.best.label;
+      const points=scoreFor(identifiedTrick);
+      tricks.push({...w,...prediction,identifiedTrick,points});
+    }
+    await tf.nextFrame();
+  }
+
+  const total=tricks.reduce((sum,t)=>sum+t.points,0);
+  return {tricks,total,duration:scan.duration};
+}
+
+function renderCompetitor(result,scoreId,resultsId){
+  $(scoreId).textContent=result.total;
+  const holder=$(resultsId);
+
+  if(!result.tricks.length){
+    holder.innerHTML='<div class="help">No classified tricks found.</div>';
+    return;
+  }
+
+  holder.innerHTML=result.tricks.map(t=>`
+    <div class="compTrick">
+      <span>${esc(t.identifiedTrick)} · ${(t.best.p*100).toFixed(0)}%</span>
+      <strong>${t.points} pts</strong>
+    </div>
+  `).join("");
+}
+
+$("compareBtn")?.addEventListener("click",async()=>{
+  const fileA=$("personAFile").files[0];
+  const fileB=$("personBFile").files[0];
+  if(!fileA || !fileB) return alert("Choose a full-line video for both people.");
+  if(!model) return alert("Train the trick model first.");
+
+  const nameA=$("personAName").value.trim() || "Person A";
+  const nameB=$("personBName").value.trim() || "Person B";
+
+  setBusy(true);
+  $("winnerBox").style.display="none";
+  $("personAScore").textContent="—";
+  $("personBScore").textContent="—";
+  $("personAResults").innerHTML="";
+  $("personBResults").innerHTML="";
+
+  try{
+    const a=await analyzeLineForCompetition(fileA,nameA);
+    renderCompetitor(a,"personAScore","personAResults");
+
+    const b=await analyzeLineForCompetition(fileB,nameB);
+    renderCompetitor(b,"personBScore","personBResults");
+
+    let winnerText,detail;
+    if(a.total>b.total){
+      winnerText=nameA;
+      detail=`${a.total} points vs ${b.total} points`;
+    }else if(b.total>a.total){
+      winnerText=nameB;
+      detail=`${b.total} points vs ${a.total} points`;
+    }else{
+      winnerText="Tie";
+      detail=`Both scored ${a.total} points`;
+    }
+
+    $("winnerName").textContent=winnerText;
+    $("winnerDetail").textContent=detail;
+    $("winnerBox").style.display="block";
+    $("versusStatus").textContent=`Comparison complete: ${nameA} ${a.total} pts · ${nameB} ${b.total} pts.`;
+  }catch(err){
+    $("versusStatus").textContent="Head-to-head analysis failed: "+err.message;
+  }
+
+  setBusy(false);
+});
+
+
+$("analyzeLineBtn")?.addEventListener("click",async()=>{
+  const file=$("lineFile").files[0];
+  if(!file) return alert("Choose a full line video first.");
+  if(!model) return alert("Train the trick model first.");
+
+  setBusy(true);
+  lineAnalysisBusy=true;
+  $("lineResults").innerHTML="";
+  $("lineTimeline").style.display="none";
+  $("lineSummary").style.display="none";
+
+  try{
+    const scan=await scanFullLine(file,(n,total,found)=>{
+      $("lineStatus").textContent=`Scanning full line · ${n}/${total} samples · pose found ${found}/${n}`;
+    });
+
+    const energies=[];
+    for(let i=0;i<scan.frames.length;i++){
+      energies.push(i===0?0:frameMotionEnergy(scan.frames[i-1],scan.frames[i]));
+    }
+
+    // Light smoothing.
+    const smooth=energies.map((_,i)=>{
+      let s=0,n=0;
+      for(let j=Math.max(0,i-1);j<=Math.min(energies.length-1,i+1);j++){s+=energies[j];n++}
+      return s/n;
+    });
+
+    const sensitivity=clamp(Number($("lineSensitivity").value)||1.2,0.5,3);
+    const threshold=robustThreshold(smooth,sensitivity);
+    const activeTimes=[];
+
+    for(let i=0;i<smooth.length;i++){
+      if(smooth[i]>threshold) activeTimes.push(scan.frames[i].time);
+    }
+
+    const windows=mergeMotionWindows(activeTimes,scan.duration);
+    $("lineStatus").textContent=`Found ${windows.length} candidate trick window${windows.length===1?"":"s"}. Classifying…`;
+
+    const tricks=[];
+    for(let i=0;i<windows.length;i++){
+      const w=windows[i];
+      $("lineStatus").textContent=`Classifying candidate ${i+1}/${windows.length} · ${w.start.toFixed(1)}–${w.end.toFixed(1)}s`;
+      const prediction=await classifyWindow(scan.frames,w.start,w.end);
+      if(prediction && prediction.best.p>=0.34){
+        tricks.push({...w,...prediction});
+      }
+      await tf.nextFrame();
+    }
+
+    renderLineAnalysis(tricks,scan.duration);
+    $("lineStatus").textContent=`Analysis complete. Found ${tricks.length} classified trick${tricks.length===1?"":"s"} across the line.`;
+  }catch(err){
+    $("lineStatus").textContent="Line analysis failed: "+err.message;
+  }
+
+  lineAnalysisBusy=false;
+  setBusy(false);
+});
+
+
+$("clearBtn").addEventListener("click",()=>{
+  if(model){model.dispose();model=null}
+  dataset=[];classNames=[];
+  datasetRevision++; modelDatasetRevision=-1; lastAnalysis=null;
+  renderDataset();
+  $("trainStatus").textContent="Dataset cleared. Pose tracker is still ready.";
+  $("predictStatus").textContent="Train a trick model first.";
+  if($("lineStatus")) $("lineStatus").textContent="Train the trick model first.";
+  if($("versusStatus")) $("versusStatus").textContent="Train the trick model first.";
+  if($("lineResults")) $("lineResults").innerHTML="";
+  $("result").style.display="none";
+  $("feedbackPanel").style.display="none";
+});
+
+$("exportBtn").addEventListener("click",()=>{
+  const payload={version:7,created:new Date().toISOString(),app:"ski-trick-pose-trainer",dataset};
+  const blob=new Blob([JSON.stringify(payload)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download="ski-pose-training-data.json";a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),500);
+});
+
+$("importBtn").addEventListener("click",()=>$("importInput").click());
+$("importInput").addEventListener("change",async()=>{
+  const file=$("importInput").files[0];if(!file)return;
+  try{
+    const obj=JSON.parse(await file.text());
+    if(!obj || !Array.isArray(obj.dataset))throw new Error("Not a Ski Trick Pose dataset.");
+    if(!obj.dataset.length)throw new Error("Dataset is empty.");
+
+    const first=obj.dataset[0];
+    if(!first || typeof first.label!=="string" || !Array.isArray(first.sequence) || !first.sequence.length || !Array.isArray(first.sequence[0])){
+      throw new Error("Dataset entries are missing pose sequences.");
+    }
+    const steps=first.sequence.length;
+    const features=first.sequence[0].length;
+    const valid=obj.dataset.every(x=>
+      x && typeof x.label==="string" && x.label.trim() &&
+      Array.isArray(x.sequence) && x.sequence.length===steps &&
+      x.sequence.every(row=>Array.isArray(row) && row.length===features && row.every(Number.isFinite))
+    );
+    if(!valid)throw new Error("Dataset contains inconsistent or invalid pose features.");
+
+    dataset=obj.dataset.map(x=>({...x,label:x.label.trim(),steps:x.steps||steps}));
+    if(model){model.dispose();model=null}
+    datasetRevision++; modelDatasetRevision=-1; lastAnalysis=null;
+    renderDataset();
+    $("feedbackPanel").style.display="none";
+    $("trainStatus").textContent=`Imported ${dataset.length} tracked clips. Train the model before testing.`;
+    $("predictStatus").textContent="Train the imported dataset.";
+  }catch(err){alert("Import failed: "+err.message)}
+  $("importInput").value="";
+});
+
+
+$("addScoreBtn")?.addEventListener("click",()=>{
+  const label = $("newScoreLabel").value.trim();
+  const points = Math.max(0, Number($("newScorePoints").value) || 0);
+  if(!label) return alert("Enter a trick name.");
+
+  const normalized = normalizeTrickName(label);
+  const existingKey = Object.keys(trickScores).find(
+    k => normalizeTrickName(k) === normalized
+  );
+
+  if(existingKey){
+    trickScores[existingKey] = points;
+  }else{
+    trickScores[label] = points;
+  }
