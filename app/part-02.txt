@@ -1,0 +1,202 @@
+mns:1fr}.metric{border-right:0;border-bottom:1px solid var(--line-soft)}.metric:last-child{border-bottom:0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1>Ski Trick AI<br>Pose Trainer</h1>
+    <p class="sub">Train on the skier's body movement instead of file counts or image appearance. This version extracts a
+    MediaPipe skeleton from each clip, normalizes the joints around the hips, measures motion, and trains an ordered temporal neural network.</p>
+  </div>
+  <div class="badge">Pose + LSTM + feedback learning</div>
+</header><nav class="topnav"><div class="topnavInner">
+<a href="#trainingCard">Train</a><a href="#testCard">Identify</a><a href="#lineAnalysisCard">Full line</a><a href="#versusCard">Head-to-head</a><a href="#scoringArea">Points</a>
+</div></nav>
+
+<div class="grid">
+<section class="card" id="trainingCard">
+  <div class="sectionEyebrow">Training</div>
+  <h2>Train the AI</h2>
+  <div class="help">Enter one trick name, then mass-select every video of that trick. Each clip is sampled at the same number of time steps so the model can compare motion in order.</div>
+
+  <label for="labelInput">Trick label</label>
+  <input id="labelInput" type="text" placeholder="e.g. Backflip" />
+
+  <label for="trainFiles">Training videos</label>
+  <input id="trainFiles" type="file" accept="video/*" multiple />
+
+  <div class="row">
+    <div>
+      <label for="stepsInput">Pose samples per video</label>
+      <input id="stepsInput" type="number" min="16" max="64" value="48" />
+      <div class="help" style="margin-top:6px">32 is a good starting point. These are evenly spaced moments from takeoff through landing.</div>
+    </div>
+    <button id="processBtn" disabled>Track & add</button>
+  </div>
+
+  
+  <div class="folderImport">
+    <div class="sectionEyebrow">Fast import</div>
+    <h3>Import one trick folder</h3>
+    <div class="help">Enter the trick name first, then choose one folder from your Desktop that contains videos of that trick. Every video in the folder will be added under the label you entered.</div>
+    <label for="folderTrickLabel">Trick name</label>
+    <input id="folderTrickLabel" type="text" placeholder="e.g. Backflip, Frontflip, 360, 540">
+
+    <label for="folderFiles">Training folder</label>
+    <input id="folderFiles" type="file" accept="video/*" webkitdirectory multiple>
+    <div class="folderHint">Example: type <strong>Backflip</strong> in the Trick name box, then choose the folder containing all your backflip videos.</div><div class="small" style="margin-top:6px">
+      The upload button becomes active after you enter a trick name and choose a folder containing at least one video.
+    </div>
+    <div class="small" style="margin-top:10px;line-height:1.7">
+      <strong>Example</strong><br>
+      Backflip/<br>
+      &nbsp;&nbsp;clip1.mp4<br>
+      &nbsp;&nbsp;clip2.mp4<br>
+      &nbsp;&nbsp;clip3.mp4
+    </div>
+    <div class="actions"><button id="importFolderBtn" type="button">Upload folder to training</button></div>
+    <div class="status" id="folderStatus">Choose a folder containing videos of one trick.</div>
+  </div>
+
+<div class="status" id="trainStatus">Loading MediaPipe pose model…</div>
+  <div class="dataset" id="dataset"></div>
+
+  <div class="actions">
+    <button id="trainBtn" disabled>Train trick model</button>
+    <button id="exportBtn" class="secondary" disabled>Export dataset</button>
+    <label style="margin:0">
+      <input id="importInput" type="file" accept=".json,application/json" style="display:none">
+      <button id="importBtn" type="button" class="secondary">Import dataset</button>
+    </label>
+    <button id="clearBtn" class="danger">Clear</button>
+  </div>
+</section>
+
+<section class="card" id="testCard">
+  <div class="sectionEyebrow">Identify</div>
+  <h2>Body & ski tracking</h2>
+  <div class="help">The skeleton overlay is important: if it does not follow the skier accurately, that clip should not be trusted as training data.</div>
+  <div class="videoBox">
+    <video id="preview" controls muted playsinline></video>
+    <canvas id="overlay"></canvas>
+  </div>
+  <div class="metrics">
+    <div class="metric"><b id="trackedMetric">—</b><span>pose detected</span></div>
+    <div class="metric"><b id="qualityMetric">—</b><span>average visibility</span></div>
+    <div class="metric"><b id="angleMetric">—</b><span>torso angle</span></div>
+  </div>
+  <div class="metrics">
+    <div class="metric"><b id="leftSkiMetric">—</b><span>left ski angle</span></div>
+    <div class="metric"><b id="rightSkiMetric">—</b><span>right ski angle</span></div>
+    <div class="metric"><b id="skiCrossMetric">—</b><span>ski crossing</span></div>
+  </div>
+
+  <hr>
+  <h2>Identify a new trick</h2>
+  <label for="testFile">Test video</label>
+  <input id="testFile" type="file" accept="video/*" />
+  <div class="actions"><button id="predictBtn" disabled>Track & identify</button></div>
+  <div class="status" id="predictStatus">Train a trick model first.</div>
+  <div class="result" id="result"></div>
+  <hr>
+  <div id="scoringArea"></div><h2>Trick points</h2>
+  <div class="help">
+    Assign a point value to each trick. Predictions show the points automatically.
+    Frontflip starts at 10 points and Backflip at 8 points.
+  </div>
+
+  <div class="scoreList" id="scoreList"></div>
+
+  <div class="scoreGrid">
+    <input id="newScoreLabel" type="text" placeholder="New trick name">
+    <input id="newScorePoints" type="number" step="1" min="0" value="5">
+  </div>
+  <div class="actions">
+    <button id="addScoreBtn" type="button" class="secondary">Add / update score</button>
+  </div>
+
+  <div class="scoreBox" id="scoreBox" style="display:none">
+    <div class="help">Score from identified trick</div>
+    <div class="scoreBig"><span id="predictedPoints">0</span> pts</div>
+  </div>
+
+
+  <div id="feedbackPanel" style="display:none;margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:13px;background:#091426">
+    <h2 style="margin-bottom:6px">4. Correct the guess & teach it</h2>
+    <div class="help">If the guess is wrong, choose the real trick. The tracked pose sequence will be added to that class and the model will automatically retrain. You can also confirm a correct guess so it learns from that clip.</div>
+
+    <label for="correctionSelect">Correct trick</label>
+    <select id="correctionSelect"></select>
+
+    <label for="newCorrectionLabel">Or enter a new trick name</label>
+    <input id="newCorrectionLabel" type="text" placeholder="e.g. Misty 540" />
+
+    <div class="actions">
+      <button id="confirmGuessBtn" class="secondary">Guess is correct — learn it</button>
+      <button id="correctGuessBtn">Correct & learn</button>
+    </div>
+    <div class="status" id="feedbackStatus" style="min-height:0">No feedback submitted yet.</div>
+  </div>
+</section>
+</div>
+
+
+
+<section class="card notice" id="versusCard">
+  <h2>Person vs Person</h2>
+  <div class="help">
+    Compare two skiers using the same trained trick model and point table. Upload one full-line video for each person.
+    The app separates the tricks in each line, identifies them, assigns points, totals both runs, and chooses the higher-scoring skier.
+  </div>
+
+  <div class="versusGrid">
+    <div class="competitor">
+      <h3>Person A</h3>
+      <label for="personAName">Name</label>
+      <input id="personAName" type="text" value="Person A">
+      <label for="personAFile">Full line video</label>
+      <input id="personAFile" type="file" accept="video/*">
+      <div class="compScore"><span id="personAScore">—</span> pts</div>
+      <div class="compResults" id="personAResults"></div>
+    </div>
+
+    <div class="vsMark">VS</div>
+
+    <div class="competitor">
+      <h3>Person B</h3>
+      <label for="personBName">Name</label>
+      <input id="personBName" type="text" value="Person B">
+      <label for="personBFile">Full line video</label>
+      <input id="personBFile" type="file" accept="video/*">
+      <div class="compScore"><span id="personBScore">—</span> pts</div>
+      <div class="compResults" id="personBResults"></div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button id="compareBtn" disabled>Analyze both & choose winner</button>
+  </div>
+
+  <div class="status" id="versusStatus">Train the trick model first.</div>
+
+  <div class="winnerBox" id="winnerBox">
+    <div class="help">Winner</div>
+    <div class="winnerName" id="winnerName">—</div>
+    <div class="help" id="winnerDetail"></div>
+  </div>
+</section>
+
+<section class="card notice" id="lineAnalysisCard">
+  <h2>Full line analysis</h2>
+  <div class="help">
+    Upload one longer ski-line video containing several tricks. The app scans the whole run, finds bursts of trick-like body rotation/motion,
+    separates them into candidate trick windows, classifies each window with your trained model, and totals the points.
+  </div>
+
+  <label for="lineFile">Full line video</label>
+  <input id="lineFile" type="file" accept="video/*">
+
+  <div class="row">
+    <div>
+      <label for="lineSensitivity">Trick detection sen
