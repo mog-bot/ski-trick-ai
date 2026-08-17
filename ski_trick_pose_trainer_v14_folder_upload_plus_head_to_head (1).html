@@ -1,0 +1,1815 @@
+<!doctype html>
+<html lang="en">
+<head>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Ski Trick AI — Pose Trainer v2</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<style>
+:root{
+  --bg:#f5f5f7;--surface:#fff;--text:#1d1d1f;--muted:#6e6e73;
+  --line:#d2d2d7;--line-soft:#e8e8ed;--accent:#0071e3;--bad:#b42318;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:"Inter",-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{width:min(1180px,92vw);margin:0 auto;padding:0 0 72px}
+header{padding:54px 0 34px;border-bottom:1px solid var(--line-soft);margin-bottom:0}
+header h1{margin:0;font-size:clamp(2.45rem,5.5vw,4.8rem);line-height:.98;letter-spacing:-.045em;font-weight:750}
+.sub{max-width:760px;margin:18px 0 0;font-size:1.08rem;line-height:1.55;color:var(--muted)}
+.badge{display:inline-block;margin-top:20px;padding:0;background:none;border:0;color:var(--muted);font-size:.86rem}
+.topnav{position:sticky;top:0;z-index:20;margin:0 calc((100vw - min(1180px,92vw))/ -2);padding:12px max(4vw,calc((100vw - 1180px)/2));background:rgba(245,245,247,.88);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border-bottom:1px solid rgba(0,0,0,.08)}
+.topnavInner{display:flex;gap:22px;overflow:auto;white-space:nowrap;scrollbar-width:none}
+.topnavInner::-webkit-scrollbar{display:none}
+.topnav a{color:var(--muted);text-decoration:none;font-size:.88rem;font-weight:600}
+.topnav a:hover{color:var(--text)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:34px}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:transparent;border:0;border-radius:0;padding:34px 0;box-shadow:none;border-bottom:1px solid var(--line-soft)}
+.card.notice{margin-top:0}
+.card h2{margin:0 0 8px;font-size:1.7rem;letter-spacing:-.025em;font-weight:650}
+.card h3{margin:0 0 6px;letter-spacing:-.015em}
+.help,.small{color:var(--muted);line-height:1.55}.help{font-size:.95rem}.small{font-size:.82rem}
+label{display:block;margin:20px 0 7px;color:var(--text);font-size:.82rem;font-weight:600}
+input,select,button{font:inherit}
+input[type=text],input[type=number],select{
+  width:100%;
+  appearance:none;
+  background:#ffffff;
+  color:var(--text);
+  border:1px solid #e5e7eb;
+  border-radius:18px;
+  padding:13px 16px;
+  min-height:48px;
+  outline:none;
+  font-size:.95rem;
+  box-shadow:0 1px 2px rgba(0,0,0,.03);
+  transition:border-color .15s,box-shadow .15s,background .15s;
+}
+input[type=text]::placeholder,input[type=number]::placeholder{color:#9ca3af}
+input[type=text]:hover,input[type=number]:hover,select:hover{background:#fdfdfd}
+input[type=text]:focus,input[type=number]:focus,select:focus{
+  border-color:#cfd4dc;
+  background:#fff;
+  box-shadow:0 0 0 3px rgba(37,211,102,.10),0 1px 3px rgba(0,0,0,.05);
+}
+input[type=file]{
+  width:100%;
+  background:#ffffff;
+  color:var(--muted);
+  border:1px solid #e5e7eb;
+  border-radius:18px;
+  padding:8px 10px;
+  min-height:50px;
+}
+input[type=file]::file-selector-button{
+  border:0;
+  border-radius:14px;
+  background:#f0f2f5;
+  color:#202124;
+  padding:9px 13px;
+  margin-right:10px;
+  font-weight:650;
+  cursor:pointer;
+}
+button{
+  position:relative;
+  border:0;
+  border-radius:18px;
+  padding:11px 20px 13px;
+  cursor:pointer;
+  font-weight:750;
+  letter-spacing:-.01em;
+  color:#fff;
+  background:linear-gradient(180deg,#ff1515 0%,#e30000 58%,#c80000 100%);
+  box-shadow:
+    0 5px 0 #8f0000,
+    0 9px 0 #b8b8bb,
+    0 12px 0 #222326,
+    0 15px 18px rgba(0,0,0,.18);
+  transform:translateY(0);
+  transition:transform .06s ease,box-shadow .06s ease,filter .12s ease;
+  user-select:none;
+}
+button:hover:not(:disabled){filter:brightness(1.04)}
+button:active:not(:disabled){
+  transform:translateY(6px);
+  box-shadow:
+    0 1px 0 #8f0000,
+    0 3px 0 #b8b8bb,
+    0 5px 0 #222326,
+    0 7px 10px rgba(0,0,0,.16);
+}
+button.secondary{
+  color:#202124;
+  background:linear-gradient(180deg,#ffffff 0%,#f2f3f5 65%,#e2e4e7 100%);
+  box-shadow:
+    0 4px 0 #bfc2c6,
+    0 7px 0 #7e8287,
+    0 10px 12px rgba(0,0,0,.12);
+}
+button.secondary:active:not(:disabled){
+  transform:translateY(4px);
+  box-shadow:
+    0 1px 0 #bfc2c6,
+    0 3px 0 #7e8287,
+    0 5px 7px rgba(0,0,0,.10);
+}
+button.danger{
+  color:#fff;
+  background:linear-gradient(180deg,#ff4545 0%,#dc2626 62%,#b91c1c 100%);
+  box-shadow:
+    0 5px 0 #7f1d1d,
+    0 8px 0 #b8b8bb,
+    0 11px 0 #222326,
+    0 14px 16px rgba(0,0,0,.16);
+}
+button:disabled{
+  opacity:.42;
+  cursor:not-allowed;
+  filter:grayscale(.15);
+  box-shadow:
+    0 3px 0 #aaa,
+    0 5px 0 #ccc,
+    0 7px 8px rgba(0,0,0,.08);
+}
+.row{display:grid;grid-template-columns:1fr auto;gap:18px;align-items:end}
+.actions{display:flex;gap:22px;align-items:center;flex-wrap:wrap;margin-top:22px;margin-bottom:8px}
+.status{margin-top:18px;padding:0;min-height:24px;color:var(--muted);background:none;border:0;white-space:pre-wrap;line-height:1.5;font-size:.9rem}
+.videoBox{position:relative;margin-top:16px;background:#000;border-radius:14px;overflow:hidden;min-height:220px}
+.videoBox video{display:block;width:100%;max-height:440px;background:#000}
+.videoBox canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.metrics,.lineSummary{display:grid;grid-template-columns:repeat(3,1fr);gap:0;margin-top:16px;border-top:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft)}
+.metric{padding:14px 12px 14px 0;background:transparent;border:0;border-right:1px solid var(--line-soft)}
+.metric:last-child{border-right:0}
+.metric b{display:block;font-size:1.25rem;font-weight:650}.metric span{display:block;margin-top:3px;color:var(--muted);font-size:.74rem}
+.dataset,.scoreList,.lineResults,.compResults{display:grid;gap:0;margin-top:16px}
+.item,.scoreRow,.lineTrick,.compTrick{border:0;border-bottom:1px solid var(--line-soft);border-radius:0;background:transparent;padding:12px 0}
+.item{display:grid;grid-template-columns:1fr auto;gap:12px}
+.item small{display:block;color:var(--muted);margin-top:3px}
+.pill{align-self:center;padding:0;background:none;color:var(--muted);font-size:.78rem}
+.result,.scoreBox,.winnerBox{margin-top:18px;padding:20px 0 0;border:0;border-top:1px solid var(--line-soft);background:transparent;border-radius:0}
+.result .best,.winnerName{font-size:2.4rem;font-weight:700;letter-spacing:-.04em}
+.scoreBig{font-size:2rem;font-weight:700;color:var(--text)}
+.prob{margin-top:14px}.probHead{display:flex;justify-content:space-between;gap:12px}
+.bar{height:4px;margin-top:6px;background:#e5e5ea;border-radius:999px;overflow:hidden}.fill{height:100%;background:var(--accent)}
+.scoreGrid{display:grid;grid-template-columns:1fr 110px;gap:10px;align-items:center;margin-top:12px}
+.scoreRow{display:grid;grid-template-columns:1fr 110px;gap:12px;align-items:center}
+.timeline{position:relative;height:8px;background:#e5e5ea;border:0;border-radius:999px;overflow:hidden;margin-top:18px}
+.timelineSeg{position:absolute;top:0;bottom:0;border-radius:999px;background:var(--accent)}
+.lineTrick{display:grid;grid-template-columns:90px 1fr auto;gap:14px;align-items:center}
+.lineTime{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:600}
+.lineName{font-weight:650}.lineMeta{font-size:.78rem;color:var(--muted);margin-top:2px}.linePts{font-size:1rem;font-weight:650}
+.versusGrid{display:grid;grid-template-columns:1fr auto 1fr;gap:30px;align-items:start;margin-top:20px}
+.vsMark{align-self:center;font-size:1rem;font-weight:700;color:var(--muted)}
+.competitor{background:transparent;border:0;border-radius:0;padding:0}
+.compScore{font-size:2.5rem;font-weight:700;letter-spacing:-.04em;margin-top:16px}
+.compTrick{display:flex;justify-content:space-between;gap:12px;font-size:.88rem}
+.winnerBox{text-align:left}
+details{margin-top:18px;padding-top:14px;border-top:1px solid var(--line-soft);color:var(--muted)}
+summary{cursor:pointer;color:var(--text);font-weight:600}
+hr{border:0;border-top:1px solid var(--line-soft);margin:28px 0}
+.folderImport{margin-top:24px;padding-top:22px;border-top:1px solid var(--line-soft)}
+.folderHint{margin-top:7px;color:var(--muted);font-size:.82rem}
+.sectionEyebrow{margin-bottom:8px;color:var(--muted);font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.messageField{
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-radius:18px;
+  padding:13px 16px;
+  box-shadow:0 1px 2px rgba(0,0,0,.03);
+}
+@media(max-width:760px){.versusGrid{grid-template-columns:1fr}.vsMark{text-align:left}.lineTrick{grid-template-columns:70px 1fr}.linePts{grid-column:2}.metrics,.lineSummary{grid-template-columns:1fr}.metric{border-right:0;border-bottom:1px solid var(--line-soft)}.metric:last-child{border-bottom:0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1>Ski Trick AI<br>Pose Trainer</h1>
+    <p class="sub">Train on the skier's body movement instead of file counts or image appearance. This version extracts a
+    MediaPipe skeleton from each clip, normalizes the joints around the hips, measures motion, and trains an ordered temporal neural network.</p>
+  </div>
+  <div class="badge">Pose + LSTM + feedback learning</div>
+</header><nav class="topnav"><div class="topnavInner">
+<a href="#trainingCard">Train</a><a href="#testCard">Identify</a><a href="#lineAnalysisCard">Full line</a><a href="#versusCard">Head-to-head</a><a href="#scoringArea">Points</a>
+</div></nav>
+
+<div class="grid">
+<section class="card" id="trainingCard">
+  <div class="sectionEyebrow">Training</div>
+  <h2>Train the AI</h2>
+  <div class="help">Enter one trick name, then mass-select every video of that trick. Each clip is sampled at the same number of time steps so the model can compare motion in order.</div>
+
+  <label for="labelInput">Trick label</label>
+  <input id="labelInput" type="text" placeholder="e.g. Backflip" />
+
+  <label for="trainFiles">Training videos</label>
+  <input id="trainFiles" type="file" accept="video/*" multiple />
+
+  <div class="row">
+    <div>
+      <label for="stepsInput">Pose samples per video</label>
+      <input id="stepsInput" type="number" min="16" max="64" value="48" />
+      <div class="help" style="margin-top:6px">32 is a good starting point. These are evenly spaced moments from takeoff through landing.</div>
+    </div>
+    <button id="processBtn" disabled>Track & add</button>
+  </div>
+
+  
+  <div class="folderImport">
+    <div class="sectionEyebrow">Fast import</div>
+    <h3>Import one trick folder</h3>
+    <div class="help">Enter the trick name first, then choose one folder from your Desktop that contains videos of that trick. Every video in the folder will be added under the label you entered.</div>
+    <label for="folderTrickLabel">Trick name</label>
+    <input id="folderTrickLabel" type="text" placeholder="e.g. Backflip, Frontflip, 360, 540">
+
+    <label for="folderFiles">Training folder</label>
+    <input id="folderFiles" type="file" accept="video/*" webkitdirectory multiple>
+    <div class="folderHint">Example: type <strong>Backflip</strong> in the Trick name box, then choose the folder containing all your backflip videos.</div><div class="small" style="margin-top:6px">
+      The upload button becomes active after you enter a trick name and choose a folder containing at least one video.
+    </div>
+    <div class="small" style="margin-top:10px;line-height:1.7">
+      <strong>Example</strong><br>
+      Backflip/<br>
+      &nbsp;&nbsp;clip1.mp4<br>
+      &nbsp;&nbsp;clip2.mp4<br>
+      &nbsp;&nbsp;clip3.mp4
+    </div>
+    <div class="actions"><button id="importFolderBtn" type="button">Upload folder to training</button></div>
+    <div class="status" id="folderStatus">Choose a folder containing videos of one trick.</div>
+  </div>
+
+<div class="status" id="trainStatus">Loading MediaPipe pose model…</div>
+  <div class="dataset" id="dataset"></div>
+
+  <div class="actions">
+    <button id="trainBtn" disabled>Train trick model</button>
+    <button id="exportBtn" class="secondary" disabled>Export dataset</button>
+    <label style="margin:0">
+      <input id="importInput" type="file" accept=".json,application/json" style="display:none">
+      <button id="importBtn" type="button" class="secondary">Import dataset</button>
+    </label>
+    <button id="clearBtn" class="danger">Clear</button>
+  </div>
+</section>
+
+<section class="card" id="testCard">
+  <div class="sectionEyebrow">Identify</div>
+  <h2>Body & ski tracking</h2>
+  <div class="help">The skeleton overlay is important: if it does not follow the skier accurately, that clip should not be trusted as training data.</div>
+  <div class="videoBox">
+    <video id="preview" controls muted playsinline></video>
+    <canvas id="overlay"></canvas>
+  </div>
+  <div class="metrics">
+    <div class="metric"><b id="trackedMetric">—</b><span>pose detected</span></div>
+    <div class="metric"><b id="qualityMetric">—</b><span>average visibility</span></div>
+    <div class="metric"><b id="angleMetric">—</b><span>torso angle</span></div>
+  </div>
+  <div class="metrics">
+    <div class="metric"><b id="leftSkiMetric">—</b><span>left ski angle</span></div>
+    <div class="metric"><b id="rightSkiMetric">—</b><span>right ski angle</span></div>
+    <div class="metric"><b id="skiCrossMetric">—</b><span>ski crossing</span></div>
+  </div>
+
+  <hr>
+  <h2>Identify a new trick</h2>
+  <label for="testFile">Test video</label>
+  <input id="testFile" type="file" accept="video/*" />
+  <div class="actions"><button id="predictBtn" disabled>Track & identify</button></div>
+  <div class="status" id="predictStatus">Train a trick model first.</div>
+  <div class="result" id="result"></div>
+  <hr>
+  <div id="scoringArea"></div><h2>Trick points</h2>
+  <div class="help">
+    Assign a point value to each trick. Predictions show the points automatically.
+    Frontflip starts at 10 points and Backflip at 8 points.
+  </div>
+
+  <div class="scoreList" id="scoreList"></div>
+
+  <div class="scoreGrid">
+    <input id="newScoreLabel" type="text" placeholder="New trick name">
+    <input id="newScorePoints" type="number" step="1" min="0" value="5">
+  </div>
+  <div class="actions">
+    <button id="addScoreBtn" type="button" class="secondary">Add / update score</button>
+  </div>
+
+  <div class="scoreBox" id="scoreBox" style="display:none">
+    <div class="help">Score from identified trick</div>
+    <div class="scoreBig"><span id="predictedPoints">0</span> pts</div>
+  </div>
+
+
+  <div id="feedbackPanel" style="display:none;margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:13px;background:#091426">
+    <h2 style="margin-bottom:6px">4. Correct the guess & teach it</h2>
+    <div class="help">If the guess is wrong, choose the real trick. The tracked pose sequence will be added to that class and the model will automatically retrain. You can also confirm a correct guess so it learns from that clip.</div>
+
+    <label for="correctionSelect">Correct trick</label>
+    <select id="correctionSelect"></select>
+
+    <label for="newCorrectionLabel">Or enter a new trick name</label>
+    <input id="newCorrectionLabel" type="text" placeholder="e.g. Misty 540" />
+
+    <div class="actions">
+      <button id="confirmGuessBtn" class="secondary">Guess is correct — learn it</button>
+      <button id="correctGuessBtn">Correct & learn</button>
+    </div>
+    <div class="status" id="feedbackStatus" style="min-height:0">No feedback submitted yet.</div>
+  </div>
+</section>
+</div>
+
+
+
+<section class="card notice" id="versusCard">
+  <h2>Person vs Person</h2>
+  <div class="help">
+    Compare two skiers using the same trained trick model and point table. Upload one full-line video for each person.
+    The app separates the tricks in each line, identifies them, assigns points, totals both runs, and chooses the higher-scoring skier.
+  </div>
+
+  <div class="versusGrid">
+    <div class="competitor">
+      <h3>Person A</h3>
+      <label for="personAName">Name</label>
+      <input id="personAName" type="text" value="Person A">
+      <label for="personAFile">Full line video</label>
+      <input id="personAFile" type="file" accept="video/*">
+      <div class="compScore"><span id="personAScore">—</span> pts</div>
+      <div class="compResults" id="personAResults"></div>
+    </div>
+
+    <div class="vsMark">VS</div>
+
+    <div class="competitor">
+      <h3>Person B</h3>
+      <label for="personBName">Name</label>
+      <input id="personBName" type="text" value="Person B">
+      <label for="personBFile">Full line video</label>
+      <input id="personBFile" type="file" accept="video/*">
+      <div class="compScore"><span id="personBScore">—</span> pts</div>
+      <div class="compResults" id="personBResults"></div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button id="compareBtn" disabled>Analyze both & choose winner</button>
+  </div>
+
+  <div class="status" id="versusStatus">Train the trick model first.</div>
+
+  <div class="winnerBox" id="winnerBox">
+    <div class="help">Winner</div>
+    <div class="winnerName" id="winnerName">—</div>
+    <div class="help" id="winnerDetail"></div>
+  </div>
+</section>
+
+<section class="card notice" id="lineAnalysisCard">
+  <h2>Full line analysis</h2>
+  <div class="help">
+    Upload one longer ski-line video containing several tricks. The app scans the whole run, finds bursts of trick-like body rotation/motion,
+    separates them into candidate trick windows, classifies each window with your trained model, and totals the points.
+  </div>
+
+  <label for="lineFile">Full line video</label>
+  <input id="lineFile" type="file" accept="video/*">
+
+  <div class="row">
+    <div>
+      <label for="lineSensitivity">Trick detection sensitivity</label>
+      <input id="lineSensitivity" type="number" min="0.5" max="3" step="0.1" value="1.2">
+      <div class="help" style="margin-top:6px">Lower = detects more possible tricks. Higher = requires stronger rotation/movement.</div>
+    </div>
+    <button id="analyzeLineBtn" disabled>Analyze full line</button>
+  </div>
+
+  <div class="status" id="lineStatus">Train the trick model first.</div>
+  <div class="timeline" id="lineTimeline" style="display:none"></div>
+
+  <div class="lineSummary" id="lineSummary" style="display:none">
+    <div class="metric"><b id="lineTrickCount">0</b><span>tricks found</span></div>
+    <div class="metric"><b id="lineTotalPoints">0</b><span>total points</span></div>
+    <div class="metric"><b id="lineDuration">0s</b><span>video duration</span></div>
+  </div>
+
+  <div class="lineResults" id="lineResults"></div>
+
+  <details>
+    <summary>How automatic trick separation works</summary>
+    <p class="small">
+      The detector looks for sustained changes in torso angle, shoulder/hip orientation, ski angle, and normalized joint motion.
+      It merges nearby high-motion moments into one candidate trick. This is automatic, but it is not perfect: carving, crashes,
+      camera cuts, rails, or very subtle tricks can create false starts. The sensitivity control lets you tune this per video.
+    </p>
+  </details>
+</section>
+
+<section class="card notice">
+  <h2>What this version learns</h2>
+  <div class="help">
+    Every time step contains normalized joint positions, joint velocities, visibility, body-orientation features, and estimated left/right ski orientation.
+    The LSTM receives those time steps <strong>in order</strong>. Classes are balanced during training so a trick with more uploaded clips does not receive more influence simply because of its count. After a prediction, your confirmation or correction can be added as a labelled example and the model retrains automatically.
+  </div>
+  <div class="small" style="margin-top:10px"><strong>Ski tracking note:</strong> the skis are estimated from ankle, heel, and foot landmarks rather than directly detected at their physical tips/tails. For this version, reprocess original videos instead of importing older pose datasets because the model now has extra ski features.</div>
+<details>
+    <summary>Important limitations</summary>
+    <p class="small">This is still an experimental browser prototype. A skier who is tiny, heavily occluded, motion-blurred, or fully inverted can be hard for a general human pose model to track. Camera viewpoint also affects what 2D pose can reveal. For best results, use clips containing one visible skier and trim them so the trick fills most of the clip. The app tracks the body, not the physical ski tips/tails.</p>
+  </details>
+</section>
+
+<video id="workerVideo" muted playsinline style="display:none"></video>
+<canvas id="workerCanvas" style="display:none"></canvas>
+</div>
+
+<script type="module">
+import {
+  PoseLandmarker,
+  FilesetResolver,
+  DrawingUtils
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304";
+
+const MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
+const WASM_URL =
+  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm";
+
+const $ = id => document.getElementById(id);
+const preview = $("preview");
+const overlay = $("overlay");
+const overlayCtx = overlay.getContext("2d");
+const workerVideo = $("workerVideo");
+
+let poseLandmarker = null;
+let dataset = []; // {label, sequence, quality, name}
+let model = null;
+let classNames = [];
+
+let trickScores = {
+  "Frontflip": 10,
+  "Backflip": 8
+};
+
+function normalizeTrickName(label){
+  return String(label || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g,"");
+}
+
+function scoreFor(label){
+  const wanted = normalizeTrickName(label);
+  for(const [name,points] of Object.entries(trickScores)){
+    if(normalizeTrickName(name) === wanted){
+      return Number(points) || 0;
+    }
+  }
+  return 0;
+}
+
+function renderScores(){
+  const holder = $("scoreList");
+  if(!holder) return;
+
+  for(const label of [...dataset.map(x=>x.label), ...classNames]){
+    const exists = Object.keys(trickScores).some(
+      k => normalizeTrickName(k) === normalizeTrickName(label)
+    );
+    if(!exists) trickScores[label] = 0;
+  }
+
+  const names = new Set([
+    ...Object.keys(trickScores),
+    ...dataset.map(x => x.label),
+    ...classNames
+  ]);
+
+  const ordered = [...names].sort((a,b)=>a.localeCompare(b));
+
+  holder.innerHTML = ordered.length
+    ? ordered.map(label => `
+      <div class="scoreRow">
+        <div><strong>${esc(label)}</strong></div>
+        <input
+          type="number"
+          min="0"
+          step="1"
+          value="${scoreFor(label)}"
+          data-score-label="${esc(label)}"
+          aria-label="Points for ${esc(label)}">
+      </div>
+    `).join("")
+    : '<div class="help">No trick scores yet.</div>';
+
+  holder.querySelectorAll("input[data-score-label]").forEach(input => {
+    input.addEventListener("change", () => {
+      const label = input.getAttribute("data-score-label");
+      trickScores[label] = Math.max(0, Number(input.value) || 0);
+      input.value = trickScores[label];
+      updatePredictedScore();
+    });
+  });
+}
+
+function updatePredictedScore(label){
+  const box = $("scoreBox");
+  const points = $("predictedPoints");
+  if(!box || !points) return;
+
+  const resolved = label || box.dataset.label;
+  if(!resolved){
+    box.style.display = "none";
+    return;
+  }
+
+  const resolvedPoints = scoreFor(resolved);
+  box.dataset.label = resolved;
+  points.textContent = resolvedPoints;
+  box.style.display = "block";
+}
+let busy = false;
+let lineAnalysisBusy = false;
+let trainedSteps = null;
+let trainedFeatureCount = null;
+
+let previewRAF = null;
+let previewLastTime = -1;
+let inferenceTimestamp = 1;
+let lastAnalysis = null; // tracked test clip + prediction, reused for human feedback
+let modelDatasetRevision = -1;
+let datasetRevision = 0;
+function nextInferenceTimestamp(){
+  inferenceTimestamp += 34;
+  return inferenceTimestamp;
+}
+
+const IMPORTANT = [
+  0,  // nose
+  11,12, // shoulders
+  13,14, // elbows
+  15,16, // wrists
+  23,24, // hips
+  25,26, // knees
+  27,28, // ankles
+  29,30, // heels
+  31,32  // foot index
+];
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
+}
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+function dist3(a,b){
+  const dx=a.x-b.x,dy=a.y-b.y,dz=(a.z||0)-(b.z||0);
+  return Math.sqrt(dx*dx+dy*dy+dz*dz);
+}
+function mid(a,b){
+  return {x:(a.x+b.x)/2,y:(a.y+b.y)/2,z:((a.z||0)+(b.z||0))/2};
+}
+function wrapAngle(a){
+  while(a > Math.PI) a -= Math.PI*2;
+  while(a < -Math.PI) a += Math.PI*2;
+  return a;
+}
+function torsoAngle(pose){
+  const shoulder = mid(pose[11],pose[12]);
+  const hip = mid(pose[23],pose[24]);
+  // angle of hip -> shoulder in image coordinates
+  return Math.atan2(shoulder.y-hip.y,shoulder.x-hip.x);
+}
+function shoulderAngle(pose){
+  const a=pose[11],b=pose[12];
+  return Math.atan2(b.y-a.y,b.x-a.x);
+}
+function hipAngle(pose){
+  const a=pose[23],b=pose[24];
+  return Math.atan2(b.y-a.y,b.x-a.x);
+}
+
+function skiFromFoot(pose, side){
+  const ankleIdx = side==="left" ? 27 : 28;
+  const heelIdx = side==="left" ? 29 : 30;
+  const toeIdx = side==="left" ? 31 : 32;
+  const ankle = pose[ankleIdx], heel = pose[heelIdx], toe = pose[toeIdx];
+  if(!ankle || !heel || !toe) return null;
+
+  let dx = toe.x - heel.x, dy = toe.y - heel.y;
+  const mag = Math.sqrt(dx*dx + dy*dy);
+  if(mag < 1e-5) return null;
+  dx /= mag; dy /= mag;
+
+  const shoulderWidth = Math.max(
+    Math.hypot(pose[11].x-pose[12].x, pose[11].y-pose[12].y),
+    0.04
+  );
+  const halfLength = shoulderWidth * 1.8;
+  const center = {
+    x:(ankle.x + toe.x + heel.x)/3,
+    y:(ankle.y + toe.y + heel.y)/3
+  };
+
+  return {
+    center,
+    tip:{x:center.x + dx*halfLength, y:center.y + dy*halfLength},
+    tail:{x:center.x - dx*halfLength, y:center.y - dy*halfLength},
+    angle:Math.atan2(dy,dx),
+    visibility:Math.min(ankle.visibility ?? 0, heel.visibility ?? 0, toe.visibility ?? 0)
+  };
+}
+
+function skiFeaturesFromPose(pose){
+  const left = skiFromFoot(pose,"left");
+  const right = skiFromFoot(pose,"right");
+  if(!left || !right){
+    return {leftAngle:0,rightAngle:0,separation:0,crossing:0,parallelness:0,leftVisibility:0,rightVisibility:0,left,right};
+  }
+
+  const separation = Math.hypot(left.center.x-right.center.x,left.center.y-right.center.y);
+  const diff = Math.abs(wrapAngle(left.angle-right.angle));
+  const parallelness = Math.abs(Math.cos(diff));
+
+  function orient(a,b,c){
+    return (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x);
+  }
+  const o1=orient(left.tail,left.tip,right.tail);
+  const o2=orient(left.tail,left.tip,right.tip);
+  const o3=orient(right.tail,right.tip,left.tail);
+  const o4=orient(right.tail,right.tip,left.tip);
+  const crossing=((o1*o2<0)&&(o3*o4<0)) ? 1 : 0;
+
+  return {
+    leftAngle:left.angle,rightAngle:right.angle,separation,crossing,parallelness,
+    leftVisibility:left.visibility,rightVisibility:right.visibility,left,right
+  };
+}
+
+async function initPose(){
+  try{
+    const vision = await FilesetResolver.forVisionTasks(WASM_URL);
+    poseLandmarker = await PoseLandmarker.createFromOptions(vision,{
+      baseOptions:{modelAssetPath:MODEL_URL,delegate:"GPU"},
+      runningMode:"VIDEO",
+      numPoses:1,
+      minPoseDetectionConfidence:0.35,
+      minPosePresenceConfidence:0.35,
+      minTrackingConfidence:0.35
+    });
+    $("trainStatus").textContent =
+      "Pose tracker ready. Label a trick and select training videos.";
+    $("processBtn").disabled = false;
+    updateFolderImportState();
+  }catch(err){
+    // Fallback to CPU because some browsers/devices reject the GPU delegate.
+    try{
+      const vision = await FilesetResolver.forVisionTasks(WASM_URL);
+      poseLandmarker = await PoseLandmarker.createFromOptions(vision,{
+        baseOptions:{modelAssetPath:MODEL_URL},
+        runningMode:"VIDEO",numPoses:1,
+        minPoseDetectionConfidence:0.35,
+        minPosePresenceConfidence:0.35,
+        minTrackingConfidence:0.35
+      });
+      $("trainStatus").textContent =
+        "Pose tracker ready (CPU mode). Label a trick and select training videos.";
+      $("processBtn").disabled = false;
+      updateFolderImportState();
+    }catch(err2){
+      $("trainStatus").textContent =
+        "Could not load MediaPipe Pose.\nCheck your internet connection and open this page in a current Chrome/Edge browser.\n" + err2.message;
+    }
+  }
+}
+initPose();
+
+function setBusy(v){
+  busy=v;
+  $("processBtn").disabled = v || !poseLandmarker;
+  if($("importFolderBtn")) $("importFolderBtn").disabled = v;
+  $("trainBtn").disabled = v || new Set(dataset.map(x=>x.label)).size < 2;
+  $("predictBtn").disabled = v || !model || modelDatasetRevision !== datasetRevision;
+  $("exportBtn").disabled = v || dataset.length===0;
+  $("confirmGuessBtn").disabled = v || !lastAnalysis;
+  $("correctGuessBtn").disabled = v || !lastAnalysis;
+}
+
+function markDatasetChanged(message){
+  datasetRevision++;
+  lastAnalysis = null;
+  $("feedbackPanel").style.display="none";
+  if(model){
+    model.dispose();
+    model=null;
+    modelDatasetRevision=-1;
+  }
+  if(message) $("predictStatus").textContent=message;
+  setBusy(busy);
+}
+
+function refreshCorrectionOptions(){
+  const select=$("correctionSelect");
+  const labels=[...new Set(dataset.map(x=>x.label))].sort();
+  select.innerHTML=labels.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("");
+}
+
+function waitEvent(el,event){
+  return new Promise((resolve,reject)=>{
+    const ok=()=>{clean();resolve()};
+    const bad=()=>{clean();reject(new Error("Video could not be decoded."))};
+    const clean=()=>{el.removeEventListener(event,ok);el.removeEventListener("error",bad)};
+    el.addEventListener(event,ok,{once:true});
+    el.addEventListener("error",bad,{once:true});
+  });
+}
+async function loadWorker(file){
+  const url=URL.createObjectURL(file);
+  workerVideo.src=url; workerVideo.load();
+  await waitEvent(workerVideo,"loadedmetadata");
+  return url;
+}
+async function seekWorker(t){
+  t=clamp(t,0,Math.max(0,workerVideo.duration-.002));
+  if(Math.abs(workerVideo.currentTime-t)<.002) return;
+  workerVideo.currentTime=t;
+  await waitEvent(workerVideo,"seeked");
+}
+
+function normalizePose(pose){
+  const hipCenter=mid(pose[23],pose[24]);
+  let scale=dist3(pose[11],pose[12]);
+  // torso size is safer when shoulders are foreshortened.
+  const shoulderCenter=mid(pose[11],pose[12]);
+  scale=Math.max(scale,dist3(shoulderCenter,hipCenter),0.03);
+
+  return IMPORTANT.map(idx=>{
+    const p=pose[idx];
+    return {
+      x:(p.x-hipCenter.x)/scale,
+      y:(p.y-hipCenter.y)/scale,
+      z:((p.z||0)-hipCenter.z)/scale,
+      v:clamp(p.visibility ?? 0,0,1)
+    };
+  });
+}
+
+function poseQuality(pose){
+  const vals=IMPORTANT.map(i=>clamp(pose[i]?.visibility ?? 0,0,1));
+  return vals.reduce((a,b)=>a+b,0)/vals.length;
+}
+
+function interpolateMissing(frames){
+  // frames elements are either {norm, raw, quality} or null.
+  const out=frames.slice();
+  const valid=out.map((x,i)=>x?i:-1).filter(i=>i>=0);
+  if(!valid.length) return out;
+
+  // Fill leading/trailing missing with nearest valid pose.
+  for(let i=0;i<valid[0];i++) out[i]=structuredClone(out[valid[0]]);
+  for(let i=valid[valid.length-1]+1;i<out.length;i++) out[i]=structuredClone(out[valid[valid.length-1]]);
+
+  for(let k=0;k<valid.length-1;k++){
+    const a=valid[k], b=valid[k+1];
+    if(b===a+1) continue;
+    for(let i=a+1;i<b;i++){
+      const r=(i-a)/(b-a);
+      const A=out[a],B=out[b];
+      const norm=A.norm.map((p,j)=>({
+        x:p.x+(B.norm[j].x-p.x)*r,
+        y:p.y+(B.norm[j].y-p.y)*r,
+        z:p.z+(B.norm[j].z-p.z)*r,
+        v:Math.min(p.v,B.norm[j].v)*0.6
+      }));
+      out[i]={norm,raw:A.raw,quality:Math.min(A.quality,B.quality)*0.6,interpolated:true,
+        torso:A.torso+(wrapAngle(B.torso-A.torso))*r,
+        shoulder:A.shoulder+(wrapAngle(B.shoulder-A.shoulder))*r,
+        hip:A.hip+(wrapAngle(B.hip-A.hip))*r};
+    }
+  }
+  return out;
+}
+
+function sequenceFeatures(frames){
+  // Returns [time][features]. Important landmark order is fixed.
+  const out=[];
+  let prev=null;
+  let prevTorso=null,prevShoulder=null,prevHip=null,prevLeftSki=null,prevRightSki=null;
+
+  for(let t=0;t<frames.length;t++){
+    const f=frames[t];
+    const feat=[];
+
+    for(let j=0;j<f.norm.length;j++){
+      const p=f.norm[j];
+      const q=prev ? prev.norm[j] : p;
+      feat.push(
+        clamp(p.x,-5,5), clamp(p.y,-5,5), clamp(p.z,-5,5), p.v,
+        clamp(p.x-q.x,-2,2), clamp(p.y-q.y,-2,2), clamp(p.z-q.z,-2,2)
+      );
+    }
+
+    const ta=f.torso, sa=f.shoulder, ha=f.hip;
+    const dta=prevTorso===null?0:wrapAngle(ta-prevTorso);
+    const dsa=prevShoulder===null?0:wrapAngle(sa-prevShoulder);
+    const dha=prevHip===null?0:wrapAngle(ha-prevHip);
+
+    const skis = f.skis || skiFeaturesFromPose(f.raw);
+    const la = skis.leftAngle || 0;
+    const ra = skis.rightAngle || 0;
+    const dla = prevLeftSki===null ? 0 : wrapAngle(la-prevLeftSki);
+    const dra = prevRightSki===null ? 0 : wrapAngle(ra-prevRightSki);
+
+    feat.push(
+      Math.sin(ta),Math.cos(ta),dta,
+      Math.sin(sa),Math.cos(sa),dsa,
+      Math.sin(ha),Math.cos(ha),dha,
+      f.quality,
+      f.interpolated?1:0,
+      Math.sin(la),Math.cos(la),dla,
+      Math.sin(ra),Math.cos(ra),dra,
+      clamp(skis.separation,0,2),
+      skis.crossing,
+      skis.parallelness,
+      skis.leftVisibility,
+      skis.rightVisibility
+    );
+
+    out.push(feat);
+    prev=f; prevTorso=ta; prevShoulder=sa; prevHip=ha;
+    prevLeftSki=la; prevRightSki=ra;
+  }
+  return out;
+}
+
+async function extractSequence(file,steps,onProgress){
+  const url=await loadWorker(file);
+  const dur=workerVideo.duration;
+  if(!isFinite(dur)||dur<=0){URL.revokeObjectURL(url);throw new Error("Invalid video duration")}
+
+  const frames=[];
+  let detected=0, qualitySum=0;
+  const start=dur*.03,end=dur*.97;
+
+  // MediaPipe VIDEO timestamps must increase monotonically across every call.
+  for(let i=0;i<steps;i++){
+    const time=steps===1?dur/2:start+(end-start)*(i/(steps-1));
+    await seekWorker(time);
+    let result=null;
+    try{
+      result=poseLandmarker.detectForVideo(workerVideo,nextInferenceTimestamp());
+    }catch(e){
+      result=null;
+    }
+    if(result?.landmarks?.length){
+      const raw=result.landmarks[0];
+      const q=poseQuality(raw);
+      const skis = skiFeaturesFromPose(raw);
+      frames.push({
+        raw,
+        norm:normalizePose(raw),
+        quality:q,
+        torso:torsoAngle(raw),
+        shoulder:shoulderAngle(raw),
+        hip:hipAngle(raw),
+        skis,
+        interpolated:false
+      });
+      detected++;
+      qualitySum+=q;
+    }else{
+      frames.push(null);
+    }
+    if(onProgress) onProgress(i+1,steps,detected);
+    await tf.nextFrame();
+  }
+
+  URL.revokeObjectURL(url);
+  const detectionRate=detected/steps;
+  const avgQuality=detected?qualitySum/detected:0;
+
+  if(detected < Math.max(4,Math.floor(steps*.25))){
+    throw new Error(`Pose found in only ${detected}/${steps} samples. Use a closer/clearer skier or trim the clip.`);
+  }
+
+  const filled=interpolateMissing(frames);
+  const sequence=sequenceFeatures(filled);
+  return {sequence,detectionRate,avgQuality,frames:filled};
+}
+
+function renderDataset(){
+  const holder=$("dataset");
+  const groups={};
+  dataset.forEach(s=>{
+    if(!groups[s.label])groups[s.label]=[];
+    groups[s.label].push(s);
+  });
+  if(!dataset.length){
+    holder.innerHTML='<div class="help">No tracked training clips yet.</div>';
+  }else{
+    holder.innerHTML=Object.keys(groups).sort().map(label=>{
+      const arr=groups[label];
+      const q=arr.reduce((s,x)=>s+x.quality,0)/arr.length;
+      return `<div class="item"><div><strong>${esc(label)}</strong><small>${arr.length} clips · avg tracking ${(q*100).toFixed(0)}%</small></div><span class="pill">${arr.length}</span></div>`;
+    }).join("");
+  }
+  refreshCorrectionOptions();
+  setBusy(busy);
+  renderScores();
+}
+
+$("processBtn").addEventListener("click",async()=>{
+  const label=$("labelInput").value.trim();
+  const files=[...$("trainFiles").files];
+  const steps=clamp(parseInt($("stepsInput").value)||32,16,64);
+  if(!label)return alert("Enter the trick label first.");
+  if(!files.length)return alert("Select one or more training videos.");
+
+  setBusy(true);
+  let added=0,failed=0;
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+    try{
+      const r=await extractSequence(file,steps,(n,total,found)=>{
+        $("trainStatus").textContent=`Tracking ${file.name}\nVideo ${i+1}/${files.length} · sample ${n}/${total} · pose found ${found}/${n}`;
+      });
+      dataset.push({label,name:file.name,sequence:r.sequence,quality:r.avgQuality,detectionRate:r.detectionRate,steps});
+      added++;
+      updateFolderImportState();
+renderDataset();
+    }catch(err){
+      failed++;
+      $("trainStatus").textContent=`Skipped ${file.name}: ${err.message}`;
+    }
+  }
+  $("trainFiles").value="";
+  if(added>0){
+    markDatasetChanged("Training data changed. Retrain the trick model before testing.");
+  }
+  $("trainStatus").textContent=`Finished. Added ${added} clip${added===1?"":"s"} as "${label}".`+
+    (failed?` Skipped ${failed} clip${failed===1?"":"s"} with poor/failed tracking.`:"")+
+    (added?"\nRetrain the model to include these new examples.":"");
+  setBusy(false);
+  updateFolderImportState();
+});
+
+function balancedSamples(){
+  const groups={};
+  dataset.forEach(x=>(groups[x.label]??=[]).push(x));
+  classNames=Object.keys(groups).sort();
+  const max=Math.max(...classNames.map(c=>groups[c].length));
+  const out=[];
+  for(const c of classNames){
+    const a=groups[c];
+    for(let i=0;i<max;i++)out.push(a[i%a.length]);
+  }
+  for(let i=out.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));[out[i],out[j]]=[out[j],out[i]];
+  }
+  return {samples:out,max};
+}
+
+async function trainCurrentDataset(statusTarget="trainStatus"){
+  if(new Set(dataset.map(x=>x.label)).size<2){
+    alert("Add at least two trick classes.");
+    return false;
+  }
+  setBusy(true);
+  try{
+    const {samples,max}=balancedSamples();
+    const steps=samples[0].sequence.length;
+    const featureCount=samples[0].sequence[0].length;
+    trainedSteps=steps;
+    trainedFeatureCount=featureCount;
+
+    if(samples.some(s=>!Array.isArray(s.sequence) || s.sequence.length!==steps || !Array.isArray(s.sequence[0]) || s.sequence[0].length!==featureCount)){
+      throw new Error("All clips must use the same pose sample count and feature format.");
+    }
+
+    if(model)model.dispose();
+    model=tf.sequential();
+    model.add(tf.layers.lstm({
+      inputShape:[steps,featureCount],
+      units:96,
+      returnSequences:false,
+      kernelRegularizer:tf.regularizers.l2({l2:0.0004})
+    }));
+    model.add(tf.layers.dropout({rate:.35}));
+    model.add(tf.layers.dense({units:64,activation:"relu"}));
+    model.add(tf.layers.dropout({rate:.25}));
+    model.add(tf.layers.dense({units:classNames.length,activation:"softmax"}));
+    model.compile({optimizer:tf.train.adam(.0008),loss:"categoricalCrossentropy",metrics:["accuracy"]});
+
+    const xs=tf.tensor3d(samples.map(s=>s.sequence));
+    const yIdx=tf.tensor1d(samples.map(s=>classNames.indexOf(s.label)),"int32");
+    const ys=tf.oneHot(yIdx,classNames.length); yIdx.dispose();
+
+    $(statusTarget).textContent=`Training temporal pose model…\n${steps} time steps × ${featureCount} features · balanced to ${max} examples/class`;
+
+    await model.fit(xs,ys,{
+      epochs:80,
+      batchSize:Math.max(4,Math.min(16,samples.length)),
+      shuffle:true,
+      callbacks:{
+        onEpochEnd:async(epoch,logs)=>{
+          const acc=logs.acc??logs.accuracy??0;
+          $(statusTarget).textContent=`Training ${epoch+1}/80 · loss ${logs.loss.toFixed(4)} · accuracy ${(acc*100).toFixed(1)}%\nBalanced to ${max} examples/class`;
+          await tf.nextFrame();
+        }
+      }
+    });
+    xs.dispose();ys.dispose();
+    modelDatasetRevision=datasetRevision;
+    $(statusTarget).textContent=`Model trained on ${classNames.length} tricks: ${classNames.join(", ")}.\nTraining was balanced to ${max} examples per class.`;
+    $("predictStatus").textContent="Ready. Choose a new video.";
+    if($("lineStatus")) $("lineStatus").textContent="Ready. Choose a full line video.";
+    if($("versusStatus")) $("versusStatus").textContent="Ready. Choose two full line videos.";
+    setBusy(false);
+    return true;
+  }catch(err){
+    $(statusTarget).textContent="Training error: "+err.message;
+    if(model){model.dispose();model=null}
+    modelDatasetRevision=-1;
+    setBusy(false);
+    return false;
+  }
+}
+
+$("trainBtn").addEventListener("click",()=>trainCurrentDataset("trainStatus"));
+
+$("testFile").addEventListener("change",()=>{
+  const file=$("testFile").files[0];
+  if(!file)return;
+  if(preview.src)URL.revokeObjectURL(preview.src);
+  preview.src=URL.createObjectURL(file);
+  preview.load();
+  lastAnalysis=null;
+  $("feedbackPanel").style.display="none";
+  $("result").style.display="none";
+  startPreviewTracking();
+});
+
+$("predictBtn").addEventListener("click",async()=>{
+  const file=$("testFile").files[0];
+  if(!file)return alert("Choose a test video.");
+  if(!model || modelDatasetRevision!==datasetRevision)return alert("Train the current dataset first.");
+  const steps=dataset[0]?.steps || clamp(parseInt($("stepsInput").value)||32,16,64);
+
+  setBusy(true);
+  $("result").style.display="none";
+  $("feedbackPanel").style.display="none";
+  lastAnalysis=null;
+  try{
+    const r=await extractSequence(file,steps,(n,total,found)=>{
+      $("predictStatus").textContent=`Tracking test clip · ${n}/${total} samples · pose found ${found}/${n}`;
+    });
+    const x=tf.tensor3d([r.sequence]);
+    const y=model.predict(x);
+    const probs=Array.from(await y.data());
+    x.dispose();y.dispose();
+
+    const ranked=probs.map((p,i)=>({label:classNames[i],p})).sort((a,b)=>b.p-a.p);
+    const best=ranked[0];
+    const committedPredictedPoints = scoreFor(best.label);
+    updatePredictedScore(best.label);
+    lastAnalysis={
+      name:file.name,
+      sequence:r.sequence,
+      quality:r.avgQuality,
+      detectionRate:r.detectionRate,
+      steps,
+      predictedLabel:best.label,
+      confidence:best.p
+    };
+    $("predictStatus").textContent=`Identified ${best.label} · ${committedPredictedPoints} points · tracking quality ${(r.avgQuality*100).toFixed(0)}% · pose detected ${(r.detectionRate*100).toFixed(0)}% of samples.`;
+
+    $("result").style.display="block";
+    $("result").innerHTML=
+      `<div class="help">Predicted trick</div><div class="best">${esc(best.label)}</div><div class="help">${(best.p*100).toFixed(1)}% model confidence · ${committedPredictedPoints} points</div>`+
+      ranked.map(r=>`<div class="prob"><div class="probHead"><span>${esc(r.label)}</span><span>${(r.p*100).toFixed(1)}%</span></div><div class="bar"><div class="fill" style="width:${Math.max(1,r.p*100)}%"></div></div></div>`).join("");
+
+    refreshCorrectionOptions();
+    $("correctionSelect").value=best.label;
+    $("newCorrectionLabel").value="";
+    $("feedbackStatus").textContent="Tell the app whether this guess was correct.";
+    $("feedbackPanel").style.display="block";
+  }catch(err){
+    $("predictStatus").textContent="Could not analyse test clip: "+err.message;
+  }
+  setBusy(false);
+});
+
+async function learnFromLastAnalysis(label, source){
+  if(!lastAnalysis)return;
+  label=(label||"").trim();
+  if(!label)return alert("Choose or enter the correct trick name.");
+
+  const example={
+    label,
+    name:lastAnalysis.name+` [${source}]`,
+    sequence:lastAnalysis.sequence,
+    quality:lastAnalysis.quality,
+    detectionRate:lastAnalysis.detectionRate,
+    steps:lastAnalysis.steps,
+    feedback:true
+  };
+  dataset.push(example);
+  datasetRevision++;
+  renderDataset();
+  $("feedbackStatus").textContent=`Added this clip to “${label}”. Retraining automatically…`;
+
+  // Keep the feedback clip, but invalidate the old model before retraining.
+  if(model){model.dispose();model=null}
+  modelDatasetRevision=-1;
+  setBusy(true);
+  const ok=await trainCurrentDataset("feedbackStatus");
+  if(ok){
+    $("feedbackStatus").textContent=`Learned this clip as “${label}” and retrained the model. You can test another video now.`;
+    lastAnalysis=null;
+    $("feedbackPanel").style.display="none";
+  }
+}
+
+$("confirmGuessBtn").addEventListener("click",()=>{
+  if(!lastAnalysis)return;
+  learnFromLastAnalysis(lastAnalysis.predictedLabel,"confirmed by user");
+});
+
+$("correctGuessBtn").addEventListener("click",()=>{
+  const typed=$("newCorrectionLabel").value.trim();
+  const selected=$("correctionSelect").value;
+  learnFromLastAnalysis(typed || selected,"corrected by user");
+});
+
+function resizeOverlay(){
+  if(preview.videoWidth && preview.videoHeight){
+    overlay.width=preview.videoWidth;
+    overlay.height=preview.videoHeight;
+  }
+}
+window.addEventListener("resize",resizeOverlay);
+preview.addEventListener("loadedmetadata",resizeOverlay);
+
+async function previewLoop(){
+  if(busy || !poseLandmarker || preview.paused || preview.ended){
+    previewRAF=requestAnimationFrame(previewLoop);return;
+  }
+  if(preview.currentTime!==previewLastTime){
+    previewLastTime=preview.currentTime;
+    try{
+      const result=poseLandmarker.detectForVideo(preview,nextInferenceTimestamp());
+      drawPreview(result);
+    }catch(e){}
+  }
+  previewRAF=requestAnimationFrame(previewLoop);
+}
+function startPreviewTracking(){
+  previewLastTime=-1;
+  if(!previewRAF)previewRAF=requestAnimationFrame(previewLoop);
+}
+preview.addEventListener("play",startPreviewTracking);
+
+function drawPreview(result){
+  resizeOverlay();
+  overlayCtx.clearRect(0,0,overlay.width,overlay.height);
+  if(!result?.landmarks?.length){
+    $("trackedMetric").textContent="No";
+    $("qualityMetric").textContent="—";
+    $("angleMetric").textContent="—";
+    if($("leftSkiMetric")) $("leftSkiMetric").textContent="—";
+    if($("rightSkiMetric")) $("rightSkiMetric").textContent="—";
+    if($("skiCrossMetric")) $("skiCrossMetric").textContent="—";
+    return;
+  }
+  const pose=result.landmarks[0];
+  const drawing=new DrawingUtils(overlayCtx);
+  drawing.drawConnectors(pose,PoseLandmarker.POSE_CONNECTIONS,{lineWidth:3});
+  drawing.drawLandmarks(pose,{radius:3,lineWidth:1});
+  const q=poseQuality(pose);
+  const ang=torsoAngle(pose)*180/Math.PI;
+  $("trackedMetric").textContent="Yes";
+  $("qualityMetric").textContent=(q*100).toFixed(0)+"%";
+  $("angleMetric").textContent=ang.toFixed(0)+"°";
+
+  const skis=skiFeaturesFromPose(pose);
+  function drawSki(ski){
+    if(!ski) return;
+    overlayCtx.save();
+    overlayCtx.lineWidth=6;
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(ski.tail.x*overlay.width,ski.tail.y*overlay.height);
+    overlayCtx.lineTo(ski.tip.x*overlay.width,ski.tip.y*overlay.height);
+    overlayCtx.stroke();
+    overlayCtx.restore();
+  }
+  drawSki(skis.left);
+  drawSki(skis.right);
+
+  $("leftSkiMetric").textContent=(skis.leftAngle*180/Math.PI).toFixed(0)+"°";
+  $("rightSkiMetric").textContent=(skis.rightAngle*180/Math.PI).toFixed(0)+"°";
+  $("skiCrossMetric").textContent=skis.crossing ? "Crossed" : "No";
+}
+
+
+function median(values){
+  if(!values.length) return 0;
+  const a=[...values].sort((x,y)=>x-y);
+  const m=Math.floor(a.length/2);
+  return a.length%2 ? a[m] : (a[m-1]+a[m])/2;
+}
+
+function robustThreshold(values,sensitivity){
+  const med=median(values);
+  const deviations=values.map(v=>Math.abs(v-med));
+  const mad=median(deviations) || 1e-6;
+  // Motion must rise meaningfully above the run's baseline.
+  return med + sensitivity * 2.8 * mad;
+}
+
+function frameMotionEnergy(prev,current){
+  if(!prev || !current) return 0;
+
+  let joint=0;
+  const n=Math.min(prev.norm.length,current.norm.length);
+  for(let i=0;i<n;i++){
+    const a=prev.norm[i], b=current.norm[i];
+    const dx=b.x-a.x, dy=b.y-a.y, dz=b.z-a.z;
+    joint += Math.sqrt(dx*dx+dy*dy+dz*dz) * Math.min(a.v,b.v);
+  }
+  joint/=Math.max(1,n);
+
+  const torso=Math.abs(wrapAngle(current.torso-prev.torso));
+  const shoulder=Math.abs(wrapAngle(current.shoulder-prev.shoulder));
+  const hip=Math.abs(wrapAngle(current.hip-prev.hip));
+
+  const s1=prev.skis||skiFeaturesFromPose(prev.raw);
+  const s2=current.skis||skiFeaturesFromPose(current.raw);
+  const skiL=Math.abs(wrapAngle((s2.leftAngle||0)-(s1.leftAngle||0)));
+  const skiR=Math.abs(wrapAngle((s2.rightAngle||0)-(s1.rightAngle||0)));
+
+  // Rotation gets extra weight because spins/flips are what we want to segment.
+  return joint + torso*0.8 + shoulder*0.35 + hip*0.35 + (skiL+skiR)*0.2;
+}
+
+function mergeMotionWindows(activeTimes,totalDuration){
+  if(!activeTimes.length) return [];
+
+  const windows=[];
+  let start=activeTimes[0], prev=activeTimes[0];
+
+  // At 12 Hz, allow a short quiet gap inside one trick.
+  const maxGap=0.55;
+  for(let i=1;i<activeTimes.length;i++){
+    const t=activeTimes[i];
+    if(t-prev > maxGap){
+      windows.push({start,end:prev});
+      start=t;
+    }
+    prev=t;
+  }
+  windows.push({start,end:prev});
+
+  // Expand windows so takeoff and landing are included.
+  const expanded=windows.map(w=>({
+    start:Math.max(0,w.start-0.45),
+    end:Math.min(totalDuration,w.end+0.55)
+  }));
+
+  // Merge overlaps after expansion.
+  const merged=[];
+  for(const w of expanded){
+    const last=merged[merged.length-1];
+    if(last && w.start <= last.end+0.18){
+      last.end=Math.max(last.end,w.end);
+    }else{
+      merged.push({...w});
+    }
+  }
+
+  // Ignore tiny noise blips and huge sections that are likely not one trick.
+  return merged.filter(w=>{
+    const d=w.end-w.start;
+    return d>=0.45 && d<=4.5;
+  });
+}
+
+function resampleFrames(frames,targetSteps){
+  if(!frames.length) return [];
+  if(frames.length===1) return Array.from({length:targetSteps},()=>frames[0]);
+
+  const out=[];
+  for(let i=0;i<targetSteps;i++){
+    const pos=(i/(targetSteps-1))*(frames.length-1);
+    const idx=Math.round(pos);
+    out.push(frames[Math.max(0,Math.min(frames.length-1,idx))]);
+  }
+  return out;
+}
+
+async function scanFullLine(file,onProgress){
+  const url=await loadWorker(file);
+  const duration=workerVideo.duration;
+  if(!isFinite(duration)||duration<=0){
+    URL.revokeObjectURL(url);
+    throw new Error("Invalid video duration.");
+  }
+
+  // 12 scan samples/sec is enough for finding candidate windows;
+  // classification is then resampled to the trained sequence length.
+  const scanHz=12;
+  const count=Math.max(3,Math.ceil(duration*scanHz));
+  const samples=[];
+  let detected=0;
+
+  for(let i=0;i<count;i++){
+    const t=Math.min(duration-0.002,i/scanHz);
+    await seekWorker(t);
+
+    let result=null;
+    try{
+      result=poseLandmarker.detectForVideo(workerVideo,nextInferenceTimestamp());
+    }catch(e){}
+
+    if(result?.landmarks?.length){
+      const raw=result.landmarks[0];
+      const q=poseQuality(raw);
+      const skis=skiFeaturesFromPose(raw);
+      samples.push({
+        time:t,raw,norm:normalizePose(raw),quality:q,
+        torso:torsoAngle(raw),shoulder:shoulderAngle(raw),hip:hipAngle(raw),
+        skis,interpolated:false
+      });
+      detected++;
+    }else{
+      samples.push(null);
+    }
+
+    if(onProgress) onProgress(i+1,count,detected);
+    await tf.nextFrame();
+  }
+
+  URL.revokeObjectURL(url);
+
+  if(detected < Math.max(6,count*0.25)){
+    throw new Error("The skier could not be tracked reliably through enough of the line.");
+  }
+
+  // Interpolate short tracking gaps but preserve timestamps.
+  const bare=samples.map(s=>s?{
+    raw:s.raw,norm:s.norm,quality:s.quality,torso:s.torso,shoulder:s.shoulder,
+    hip:s.hip,skis:s.skis,interpolated:false
+  }:null);
+  const filled=interpolateMissing(bare);
+
+  for(let i=0;i<filled.length;i++){
+    filled[i].time=i/scanHz;
+  }
+
+  return {duration,frames:filled,scanHz};
+}
+
+async function classifyWindow(frames,start,end){
+  const within=frames.filter(f=>f.time>=start && f.time<=end);
+  if(within.length<3) return null;
+
+  const steps=trainedSteps || dataset[0]?.sequence?.length || 48;
+  const sampled=resampleFrames(within,steps);
+  const sequence=sequenceFeatures(sampled);
+
+  if(trainedFeatureCount && sequence[0].length!==trainedFeatureCount){
+    throw new Error("The trained model shape no longer matches the current feature extractor. Retrain the model.");
+  }
+
+  const x=tf.tensor3d([sequence]);
+  const y=model.predict(x);
+  const probs=Array.from(await y.data());
+  x.dispose(); y.dispose();
+
+  const ranked=probs.map((p,i)=>({label:classNames[i],p})).sort((a,b)=>b.p-a.p);
+  return {best:ranked[0],ranked};
+}
+
+function renderLineAnalysis(tricks,duration){
+  const results=$("lineResults");
+  const timeline=$("lineTimeline");
+  const summary=$("lineSummary");
+
+  results.innerHTML="";
+  timeline.innerHTML="";
+  timeline.style.display="block";
+  summary.style.display="grid";
+
+  let total=0;
+
+  tricks.forEach((trick,index)=>{
+    const identifiedTrick = trick.best.label;
+    const points = scoreFor(identifiedTrick);
+    total += points;
+
+    const startPct=(trick.start/duration)*100;
+    const widthPct=Math.max(1,((trick.end-trick.start)/duration)*100);
+    const seg=document.createElement("div");
+    seg.className="timelineSeg";
+    seg.style.left=startPct+"%";
+    seg.style.width=widthPct+"%";
+    seg.title=`${index+1}. ${trick.best.label} ${(trick.best.p*100).toFixed(0)}%`;
+    timeline.appendChild(seg);
+
+    const row=document.createElement("div");
+    row.className="lineTrick";
+    row.innerHTML=`
+      <div class="lineTime">${trick.start.toFixed(1)}–${trick.end.toFixed(1)}s</div>
+      <div>
+        <div class="lineName">${esc(identifiedTrick)}</div>
+        <div class="lineMeta">${(trick.best.p*100).toFixed(1)}% confidence · candidate ${index+1}${points===0 ? " · no score assigned" : ""}</div>
+      </div>
+      <div class="linePts">${points} pts</div>`;
+    results.appendChild(row);
+  });
+
+  $("lineTrickCount").textContent=tricks.length;
+  $("lineTotalPoints").textContent=total;
+  $("lineDuration").textContent=duration.toFixed(1)+"s";
+
+  if(!tricks.length){
+    results.innerHTML='<div class="help">No clear trick windows were detected. Try lowering the sensitivity, or use a clip with the skier more visible.</div>';
+  }
+}
+
+
+async function analyzeLineForCompetition(file,statusPrefix){
+  const scan=await scanFullLine(file,(n,total,found)=>{
+    $("versusStatus").textContent=`${statusPrefix}: scanning ${n}/${total} samples · pose found ${found}/${n}`;
+  });
+
+  const energies=[];
+  for(let i=0;i<scan.frames.length;i++){
+    energies.push(i===0?0:frameMotionEnergy(scan.frames[i-1],scan.frames[i]));
+  }
+
+  const smooth=energies.map((_,i)=>{
+    let s=0,n=0;
+    for(let j=Math.max(0,i-1);j<=Math.min(energies.length-1,i+1);j++){
+      s+=energies[j]; n++;
+    }
+    return s/n;
+  });
+
+  const sensitivity=clamp(Number($("lineSensitivity")?.value)||1.2,0.5,3);
+  const threshold=robustThreshold(smooth,sensitivity);
+  const activeTimes=[];
+  for(let i=0;i<smooth.length;i++){
+    if(smooth[i]>threshold) activeTimes.push(scan.frames[i].time);
+  }
+
+  const windows=mergeMotionWindows(activeTimes,scan.duration);
+  const tricks=[];
+
+  for(let i=0;i<windows.length;i++){
+    const w=windows[i];
+    $("versusStatus").textContent=`${statusPrefix}: classifying trick ${i+1}/${windows.length}`;
+    const prediction=await classifyWindow(scan.frames,w.start,w.end);
+    if(prediction && prediction.best.p>=0.34){
+      const identifiedTrick=prediction.best.label;
+      const points=scoreFor(identifiedTrick);
+      tricks.push({...w,...prediction,identifiedTrick,points});
+    }
+    await tf.nextFrame();
+  }
+
+  const total=tricks.reduce((sum,t)=>sum+t.points,0);
+  return {tricks,total,duration:scan.duration};
+}
+
+function renderCompetitor(result,scoreId,resultsId){
+  $(scoreId).textContent=result.total;
+  const holder=$(resultsId);
+
+  if(!result.tricks.length){
+    holder.innerHTML='<div class="help">No classified tricks found.</div>';
+    return;
+  }
+
+  holder.innerHTML=result.tricks.map(t=>`
+    <div class="compTrick">
+      <span>${esc(t.identifiedTrick)} · ${(t.best.p*100).toFixed(0)}%</span>
+      <strong>${t.points} pts</strong>
+    </div>
+  `).join("");
+}
+
+$("compareBtn")?.addEventListener("click",async()=>{
+  const fileA=$("personAFile").files[0];
+  const fileB=$("personBFile").files[0];
+  if(!fileA || !fileB) return alert("Choose a full-line video for both people.");
+  if(!model) return alert("Train the trick model first.");
+
+  const nameA=$("personAName").value.trim() || "Person A";
+  const nameB=$("personBName").value.trim() || "Person B";
+
+  setBusy(true);
+  $("winnerBox").style.display="none";
+  $("personAScore").textContent="—";
+  $("personBScore").textContent="—";
+  $("personAResults").innerHTML="";
+  $("personBResults").innerHTML="";
+
+  try{
+    const a=await analyzeLineForCompetition(fileA,nameA);
+    renderCompetitor(a,"personAScore","personAResults");
+
+    const b=await analyzeLineForCompetition(fileB,nameB);
+    renderCompetitor(b,"personBScore","personBResults");
+
+    let winnerText,detail;
+    if(a.total>b.total){
+      winnerText=nameA;
+      detail=`${a.total} points vs ${b.total} points`;
+    }else if(b.total>a.total){
+      winnerText=nameB;
+      detail=`${b.total} points vs ${a.total} points`;
+    }else{
+      winnerText="Tie";
+      detail=`Both scored ${a.total} points`;
+    }
+
+    $("winnerName").textContent=winnerText;
+    $("winnerDetail").textContent=detail;
+    $("winnerBox").style.display="block";
+    $("versusStatus").textContent=`Comparison complete: ${nameA} ${a.total} pts · ${nameB} ${b.total} pts.`;
+  }catch(err){
+    $("versusStatus").textContent="Head-to-head analysis failed: "+err.message;
+  }
+
+  setBusy(false);
+});
+
+
+$("analyzeLineBtn")?.addEventListener("click",async()=>{
+  const file=$("lineFile").files[0];
+  if(!file) return alert("Choose a full line video first.");
+  if(!model) return alert("Train the trick model first.");
+
+  setBusy(true);
+  lineAnalysisBusy=true;
+  $("lineResults").innerHTML="";
+  $("lineTimeline").style.display="none";
+  $("lineSummary").style.display="none";
+
+  try{
+    const scan=await scanFullLine(file,(n,total,found)=>{
+      $("lineStatus").textContent=`Scanning full line · ${n}/${total} samples · pose found ${found}/${n}`;
+    });
+
+    const energies=[];
+    for(let i=0;i<scan.frames.length;i++){
+      energies.push(i===0?0:frameMotionEnergy(scan.frames[i-1],scan.frames[i]));
+    }
+
+    // Light smoothing.
+    const smooth=energies.map((_,i)=>{
+      let s=0,n=0;
+      for(let j=Math.max(0,i-1);j<=Math.min(energies.length-1,i+1);j++){s+=energies[j];n++}
+      return s/n;
+    });
+
+    const sensitivity=clamp(Number($("lineSensitivity").value)||1.2,0.5,3);
+    const threshold=robustThreshold(smooth,sensitivity);
+    const activeTimes=[];
+
+    for(let i=0;i<smooth.length;i++){
+      if(smooth[i]>threshold) activeTimes.push(scan.frames[i].time);
+    }
+
+    const windows=mergeMotionWindows(activeTimes,scan.duration);
+    $("lineStatus").textContent=`Found ${windows.length} candidate trick window${windows.length===1?"":"s"}. Classifying…`;
+
+    const tricks=[];
+    for(let i=0;i<windows.length;i++){
+      const w=windows[i];
+      $("lineStatus").textContent=`Classifying candidate ${i+1}/${windows.length} · ${w.start.toFixed(1)}–${w.end.toFixed(1)}s`;
+      const prediction=await classifyWindow(scan.frames,w.start,w.end);
+      if(prediction && prediction.best.p>=0.34){
+        tricks.push({...w,...prediction});
+      }
+      await tf.nextFrame();
+    }
+
+    renderLineAnalysis(tricks,scan.duration);
+    $("lineStatus").textContent=`Analysis complete. Found ${tricks.length} classified trick${tricks.length===1?"":"s"} across the line.`;
+  }catch(err){
+    $("lineStatus").textContent="Line analysis failed: "+err.message;
+  }
+
+  lineAnalysisBusy=false;
+  setBusy(false);
+});
+
+
+$("clearBtn").addEventListener("click",()=>{
+  if(model){model.dispose();model=null}
+  dataset=[];classNames=[];
+  datasetRevision++; modelDatasetRevision=-1; lastAnalysis=null;
+  renderDataset();
+  $("trainStatus").textContent="Dataset cleared. Pose tracker is still ready.";
+  $("predictStatus").textContent="Train a trick model first.";
+  if($("lineStatus")) $("lineStatus").textContent="Train the trick model first.";
+  if($("versusStatus")) $("versusStatus").textContent="Train the trick model first.";
+  if($("lineResults")) $("lineResults").innerHTML="";
+  $("result").style.display="none";
+  $("feedbackPanel").style.display="none";
+});
+
+$("exportBtn").addEventListener("click",()=>{
+  const payload={version:7,created:new Date().toISOString(),app:"ski-trick-pose-trainer",dataset};
+  const blob=new Blob([JSON.stringify(payload)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download="ski-pose-training-data.json";a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),500);
+});
+
+$("importBtn").addEventListener("click",()=>$("importInput").click());
+$("importInput").addEventListener("change",async()=>{
+  const file=$("importInput").files[0];if(!file)return;
+  try{
+    const obj=JSON.parse(await file.text());
+    if(!obj || !Array.isArray(obj.dataset))throw new Error("Not a Ski Trick Pose dataset.");
+    if(!obj.dataset.length)throw new Error("Dataset is empty.");
+
+    const first=obj.dataset[0];
+    if(!first || typeof first.label!=="string" || !Array.isArray(first.sequence) || !first.sequence.length || !Array.isArray(first.sequence[0])){
+      throw new Error("Dataset entries are missing pose sequences.");
+    }
+    const steps=first.sequence.length;
+    const features=first.sequence[0].length;
+    const valid=obj.dataset.every(x=>
+      x && typeof x.label==="string" && x.label.trim() &&
+      Array.isArray(x.sequence) && x.sequence.length===steps &&
+      x.sequence.every(row=>Array.isArray(row) && row.length===features && row.every(Number.isFinite))
+    );
+    if(!valid)throw new Error("Dataset contains inconsistent or invalid pose features.");
+
+    dataset=obj.dataset.map(x=>({...x,label:x.label.trim(),steps:x.steps||steps}));
+    if(model){model.dispose();model=null}
+    datasetRevision++; modelDatasetRevision=-1; lastAnalysis=null;
+    renderDataset();
+    $("feedbackPanel").style.display="none";
+    $("trainStatus").textContent=`Imported ${dataset.length} tracked clips. Train the model before testing.`;
+    $("predictStatus").textContent="Train the imported dataset.";
+  }catch(err){alert("Import failed: "+err.message)}
+  $("importInput").value="";
+});
+
+
+$("addScoreBtn")?.addEventListener("click",()=>{
+  const label = $("newScoreLabel").value.trim();
+  const points = Math.max(0, Number($("newScorePoints").value) || 0);
+  if(!label) return alert("Enter a trick name.");
+
+  const normalized = normalizeTrickName(label);
+  const existingKey = Object.keys(trickScores).find(
+    k => normalizeTrickName(k) === normalized
+  );
+
+  if(existingKey){
+    trickScores[existingKey] = points;
+  }else{
+    trickScores[label] = points;
+  }
+
+  $("newScoreLabel").value = "";
+  renderScores();
+  updatePredictedScore();
+});
+
+renderScores();
+
+
+function updateFolderImportState(){
+  const btn=$("importFolderBtn");
+  if(!btn) return;
+
+  const files=[...($("folderFiles")?.files || [])].filter(f=>f.type.startsWith("video/"));
+  const label=$("folderTrickLabel")?.value.trim() || "";
+
+  // Allow the user to click only when a label and at least one video are present.
+  // MediaPipe readiness is checked when import actually starts.
+  btn.disabled = busy || !label || files.length===0;
+}
+
+function inferSingleFolderLabel(files){
+  if(!files.length) return "";
+  const rel = files[0].webkitRelativePath || "";
+
+  // For a selected folder like Backflip/clip1.mp4,
+  // the first path component is the folder name.
+  const parts = rel.split("/").filter(Boolean);
+  return parts.length >= 2 ? parts[0].trim() : "";
+}
+
+$("folderFiles")?.addEventListener("change",()=>{
+  const files=[...$("folderFiles").files].filter(f=>f.type.startsWith("video/"));
+  const typedLabel=$("folderTrickLabel")?.value.trim() || "";
+  const folderLabel=inferSingleFolderLabel(files);
+  const label=typedLabel || folderLabel;
+
+  if(!files.length){
+    $("folderStatus").textContent="No videos found in that folder.";
+    updateFolderImportState();
+    return;
+  }
+
+  $("folderStatus").textContent=
+    `Ready to import ${files.length} video${files.length===1?"":"s"} as "${label || "Unnamed trick"}".`;
+
+  updateFolderImportState();
+});
+
+$("folderTrickLabel")?.addEventListener("input",()=>{
+  const files=[...($("folderFiles")?.files || [])].filter(f=>f.type.startsWith("video/"));
+  const label=$("folderTrickLabel").value.trim();
+
+  if(files.length){
+    $("folderStatus").textContent=
+      `Ready to import ${files.length} video${files.length===1?"":"s"} as "${label || "Unnamed trick"}".`;
+  }
+
+  updateFolderImportState();
+});
+
+
+$("importFolderBtn")?.addEventListener("click",async()=>{
+  const files=[...$("folderFiles").files].filter(f=>f.type.startsWith("video/"));
+  const label=($("folderTrickLabel")?.value.trim() || inferSingleFolderLabel(files));
+  const steps=clamp(parseInt($("stepsInput").value)||48,16,64);
+
+  if(!files.length) return alert("Choose a folder containing video files.");
+  if(!label) return alert("Enter the trick name at the top of this section before importing the folder.");
+  if(!poseLandmarker){
+    $("folderStatus").textContent="The body-tracking model is still loading. Wait a moment, then press Upload folder to training again.";
+    return;
+  }
+
+  setBusy(true);
+
+  let added=0;
+  let failed=0;
+
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+
+    try{
+      const r=await extractSequence(file,steps,(n,total,found)=>{
+        $("folderStatus").textContent=
+          `Training class: ${label}\n`+
+          `Video ${i+1}/${files.length}: ${file.name}\n`+
+          `Pose sample ${n}/${total} · found ${found}/${n}`;
+      });
+
+      dataset.push({
+        label,
+        name:file.name,
+        sequence:r.sequence,
+        quality:r.avgQuality,
+        detectionRate:r.detectionRate,
+        steps
+      });
+
+      added++;
+      renderDataset();
+
+    }catch(err){
+      failed++;
+      $("folderStatus").textContent=
+        `Skipped ${file.name}\n${err.message}`;
+    }
+  }
+
+  $("folderFiles").value="";
+
+  $("folderStatus").textContent=
+    `Imported ${added} video${added===1?"":"s"} into the "${label}" training class.`+
+    (failed ? ` ${failed} video${failed===1?" was":"s were"} skipped because tracking was too weak.` : "");
+
+  if(model){
+    model.dispose();
+    model=null;
+    classNames=[];
+    $("predictStatus").textContent="Training data changed. Retrain the model.";
+    if($("lineStatus")) $("lineStatus").textContent="Training data changed. Retrain the model.";
+    if($("versusStatus")) $("versusStatus").textContent="Training data changed. Retrain the model.";
+  }
+
+  setBusy(false);
+});
+
+renderDataset();
+</script>
+</body>
+</html>
