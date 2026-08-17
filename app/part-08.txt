@@ -1,0 +1,131 @@
+
+  $("newScoreLabel").value = "";
+  renderScores();
+  updatePredictedScore();
+});
+
+renderScores();
+
+
+function updateFolderImportState(){
+  const btn=$("importFolderBtn");
+  if(!btn) return;
+
+  const files=[...($("folderFiles")?.files || [])].filter(f=>f.type.startsWith("video/"));
+  const label=$("folderTrickLabel")?.value.trim() || "";
+
+  // Allow the user to click only when a label and at least one video are present.
+  // MediaPipe readiness is checked when import actually starts.
+  btn.disabled = busy || !label || files.length===0;
+}
+
+function inferSingleFolderLabel(files){
+  if(!files.length) return "";
+  const rel = files[0].webkitRelativePath || "";
+
+  // For a selected folder like Backflip/clip1.mp4,
+  // the first path component is the folder name.
+  const parts = rel.split("/").filter(Boolean);
+  return parts.length >= 2 ? parts[0].trim() : "";
+}
+
+$("folderFiles")?.addEventListener("change",()=>{
+  const files=[...$("folderFiles").files].filter(f=>f.type.startsWith("video/"));
+  const typedLabel=$("folderTrickLabel")?.value.trim() || "";
+  const folderLabel=inferSingleFolderLabel(files);
+  const label=typedLabel || folderLabel;
+
+  if(!files.length){
+    $("folderStatus").textContent="No videos found in that folder.";
+    updateFolderImportState();
+    return;
+  }
+
+  $("folderStatus").textContent=
+    `Ready to import ${files.length} video${files.length===1?"":"s"} as "${label || "Unnamed trick"}".`;
+
+  updateFolderImportState();
+});
+
+$("folderTrickLabel")?.addEventListener("input",()=>{
+  const files=[...($("folderFiles")?.files || [])].filter(f=>f.type.startsWith("video/"));
+  const label=$("folderTrickLabel").value.trim();
+
+  if(files.length){
+    $("folderStatus").textContent=
+      `Ready to import ${files.length} video${files.length===1?"":"s"} as "${label || "Unnamed trick"}".`;
+  }
+
+  updateFolderImportState();
+});
+
+
+$("importFolderBtn")?.addEventListener("click",async()=>{
+  const files=[...$("folderFiles").files].filter(f=>f.type.startsWith("video/"));
+  const label=($("folderTrickLabel")?.value.trim() || inferSingleFolderLabel(files));
+  const steps=clamp(parseInt($("stepsInput").value)||48,16,64);
+
+  if(!files.length) return alert("Choose a folder containing video files.");
+  if(!label) return alert("Enter the trick name at the top of this section before importing the folder.");
+  if(!poseLandmarker){
+    $("folderStatus").textContent="The body-tracking model is still loading. Wait a moment, then press Upload folder to training again.";
+    return;
+  }
+
+  setBusy(true);
+
+  let added=0;
+  let failed=0;
+
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+
+    try{
+      const r=await extractSequence(file,steps,(n,total,found)=>{
+        $("folderStatus").textContent=
+          `Training class: ${label}\n`+
+          `Video ${i+1}/${files.length}: ${file.name}\n`+
+          `Pose sample ${n}/${total} · found ${found}/${n}`;
+      });
+
+      dataset.push({
+        label,
+        name:file.name,
+        sequence:r.sequence,
+        quality:r.avgQuality,
+        detectionRate:r.detectionRate,
+        steps
+      });
+
+      added++;
+      renderDataset();
+
+    }catch(err){
+      failed++;
+      $("folderStatus").textContent=
+        `Skipped ${file.name}\n${err.message}`;
+    }
+  }
+
+  $("folderFiles").value="";
+
+  $("folderStatus").textContent=
+    `Imported ${added} video${added===1?"":"s"} into the "${label}" training class.`+
+    (failed ? ` ${failed} video${failed===1?" was":"s were"} skipped because tracking was too weak.` : "");
+
+  if(model){
+    model.dispose();
+    model=null;
+    classNames=[];
+    $("predictStatus").textContent="Training data changed. Retrain the model.";
+    if($("lineStatus")) $("lineStatus").textContent="Training data changed. Retrain the model.";
+    if($("versusStatus")) $("versusStatus").textContent="Training data changed. Retrain the model.";
+  }
+
+  setBusy(false);
+});
+
+renderDataset();
+</script>
+</body>
+</html>
