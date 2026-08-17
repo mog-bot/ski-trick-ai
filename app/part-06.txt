@@ -1,0 +1,282 @@
+ndow.addEventListener("resize",resizeOverlay);
+preview.addEventListener("loadedmetadata",resizeOverlay);
+
+async function previewLoop(){
+  if(busy || !poseLandmarker || preview.paused || preview.ended){
+    previewRAF=requestAnimationFrame(previewLoop);return;
+  }
+  if(preview.currentTime!==previewLastTime){
+    previewLastTime=preview.currentTime;
+    try{
+      const result=poseLandmarker.detectForVideo(preview,nextInferenceTimestamp());
+      drawPreview(result);
+    }catch(e){}
+  }
+  previewRAF=requestAnimationFrame(previewLoop);
+}
+function startPreviewTracking(){
+  previewLastTime=-1;
+  if(!previewRAF)previewRAF=requestAnimationFrame(previewLoop);
+}
+preview.addEventListener("play",startPreviewTracking);
+
+function drawPreview(result){
+  resizeOverlay();
+  overlayCtx.clearRect(0,0,overlay.width,overlay.height);
+  if(!result?.landmarks?.length){
+    $("trackedMetric").textContent="No";
+    $("qualityMetric").textContent="—";
+    $("angleMetric").textContent="—";
+    if($("leftSkiMetric")) $("leftSkiMetric").textContent="—";
+    if($("rightSkiMetric")) $("rightSkiMetric").textContent="—";
+    if($("skiCrossMetric")) $("skiCrossMetric").textContent="—";
+    return;
+  }
+  const pose=result.landmarks[0];
+  const drawing=new DrawingUtils(overlayCtx);
+  drawing.drawConnectors(pose,PoseLandmarker.POSE_CONNECTIONS,{lineWidth:3});
+  drawing.drawLandmarks(pose,{radius:3,lineWidth:1});
+  const q=poseQuality(pose);
+  const ang=torsoAngle(pose)*180/Math.PI;
+  $("trackedMetric").textContent="Yes";
+  $("qualityMetric").textContent=(q*100).toFixed(0)+"%";
+  $("angleMetric").textContent=ang.toFixed(0)+"°";
+
+  const skis=skiFeaturesFromPose(pose);
+  function drawSki(ski){
+    if(!ski) return;
+    overlayCtx.save();
+    overlayCtx.lineWidth=6;
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(ski.tail.x*overlay.width,ski.tail.y*overlay.height);
+    overlayCtx.lineTo(ski.tip.x*overlay.width,ski.tip.y*overlay.height);
+    overlayCtx.stroke();
+    overlayCtx.restore();
+  }
+  drawSki(skis.left);
+  drawSki(skis.right);
+
+  $("leftSkiMetric").textContent=(skis.leftAngle*180/Math.PI).toFixed(0)+"°";
+  $("rightSkiMetric").textContent=(skis.rightAngle*180/Math.PI).toFixed(0)+"°";
+  $("skiCrossMetric").textContent=skis.crossing ? "Crossed" : "No";
+}
+
+
+function median(values){
+  if(!values.length) return 0;
+  const a=[...values].sort((x,y)=>x-y);
+  const m=Math.floor(a.length/2);
+  return a.length%2 ? a[m] : (a[m-1]+a[m])/2;
+}
+
+function robustThreshold(values,sensitivity){
+  const med=median(values);
+  const deviations=values.map(v=>Math.abs(v-med));
+  const mad=median(deviations) || 1e-6;
+  // Motion must rise meaningfully above the run's baseline.
+  return med + sensitivity * 2.8 * mad;
+}
+
+function frameMotionEnergy(prev,current){
+  if(!prev || !current) return 0;
+
+  let joint=0;
+  const n=Math.min(prev.norm.length,current.norm.length);
+  for(let i=0;i<n;i++){
+    const a=prev.norm[i], b=current.norm[i];
+    const dx=b.x-a.x, dy=b.y-a.y, dz=b.z-a.z;
+    joint += Math.sqrt(dx*dx+dy*dy+dz*dz) * Math.min(a.v,b.v);
+  }
+  joint/=Math.max(1,n);
+
+  const torso=Math.abs(wrapAngle(current.torso-prev.torso));
+  const shoulder=Math.abs(wrapAngle(current.shoulder-prev.shoulder));
+  const hip=Math.abs(wrapAngle(current.hip-prev.hip));
+
+  const s1=prev.skis||skiFeaturesFromPose(prev.raw);
+  const s2=current.skis||skiFeaturesFromPose(current.raw);
+  const skiL=Math.abs(wrapAngle((s2.leftAngle||0)-(s1.leftAngle||0)));
+  const skiR=Math.abs(wrapAngle((s2.rightAngle||0)-(s1.rightAngle||0)));
+
+  // Rotation gets extra weight because spins/flips are what we want to segment.
+  return joint + torso*0.8 + shoulder*0.35 + hip*0.35 + (skiL+skiR)*0.2;
+}
+
+function mergeMotionWindows(activeTimes,totalDuration){
+  if(!activeTimes.length) return [];
+
+  const windows=[];
+  let start=activeTimes[0], prev=activeTimes[0];
+
+  // At 12 Hz, allow a short quiet gap inside one trick.
+  const maxGap=0.55;
+  for(let i=1;i<activeTimes.length;i++){
+    const t=activeTimes[i];
+    if(t-prev > maxGap){
+      windows.push({start,end:prev});
+      start=t;
+    }
+    prev=t;
+  }
+  windows.push({start,end:prev});
+
+  // Expand windows so takeoff and landing are included.
+  const expanded=windows.map(w=>({
+    start:Math.max(0,w.start-0.45),
+    end:Math.min(totalDuration,w.end+0.55)
+  }));
+
+  // Merge overlaps after expansion.
+  const merged=[];
+  for(const w of expanded){
+    const last=merged[merged.length-1];
+    if(last && w.start <= last.end+0.18){
+      last.end=Math.max(last.end,w.end);
+    }else{
+      merged.push({...w});
+    }
+  }
+
+  // Ignore tiny noise blips and huge sections that are likely not one trick.
+  return merged.filter(w=>{
+    const d=w.end-w.start;
+    return d>=0.45 && d<=4.5;
+  });
+}
+
+function resampleFrames(frames,targetSteps){
+  if(!frames.length) return [];
+  if(frames.length===1) return Array.from({length:targetSteps},()=>frames[0]);
+
+  const out=[];
+  for(let i=0;i<targetSteps;i++){
+    const pos=(i/(targetSteps-1))*(frames.length-1);
+    const idx=Math.round(pos);
+    out.push(frames[Math.max(0,Math.min(frames.length-1,idx))]);
+  }
+  return out;
+}
+
+async function scanFullLine(file,onProgress){
+  const url=await loadWorker(file);
+  const duration=workerVideo.duration;
+  if(!isFinite(duration)||duration<=0){
+    URL.revokeObjectURL(url);
+    throw new Error("Invalid video duration.");
+  }
+
+  // 12 scan samples/sec is enough for finding candidate windows;
+  // classification is then resampled to the trained sequence length.
+  const scanHz=12;
+  const count=Math.max(3,Math.ceil(duration*scanHz));
+  const samples=[];
+  let detected=0;
+
+  for(let i=0;i<count;i++){
+    const t=Math.min(duration-0.002,i/scanHz);
+    await seekWorker(t);
+
+    let result=null;
+    try{
+      result=poseLandmarker.detectForVideo(workerVideo,nextInferenceTimestamp());
+    }catch(e){}
+
+    if(result?.landmarks?.length){
+      const raw=result.landmarks[0];
+      const q=poseQuality(raw);
+      const skis=skiFeaturesFromPose(raw);
+      samples.push({
+        time:t,raw,norm:normalizePose(raw),quality:q,
+        torso:torsoAngle(raw),shoulder:shoulderAngle(raw),hip:hipAngle(raw),
+        skis,interpolated:false
+      });
+      detected++;
+    }else{
+      samples.push(null);
+    }
+
+    if(onProgress) onProgress(i+1,count,detected);
+    await tf.nextFrame();
+  }
+
+  URL.revokeObjectURL(url);
+
+  if(detected < Math.max(6,count*0.25)){
+    throw new Error("The skier could not be tracked reliably through enough of the line.");
+  }
+
+  // Interpolate short tracking gaps but preserve timestamps.
+  const bare=samples.map(s=>s?{
+    raw:s.raw,norm:s.norm,quality:s.quality,torso:s.torso,shoulder:s.shoulder,
+    hip:s.hip,skis:s.skis,interpolated:false
+  }:null);
+  const filled=interpolateMissing(bare);
+
+  for(let i=0;i<filled.length;i++){
+    filled[i].time=i/scanHz;
+  }
+
+  return {duration,frames:filled,scanHz};
+}
+
+async function classifyWindow(frames,start,end){
+  const within=frames.filter(f=>f.time>=start && f.time<=end);
+  if(within.length<3) return null;
+
+  const steps=trainedSteps || dataset[0]?.sequence?.length || 48;
+  const sampled=resampleFrames(within,steps);
+  const sequence=sequenceFeatures(sampled);
+
+  if(trainedFeatureCount && sequence[0].length!==trainedFeatureCount){
+    throw new Error("The trained model shape no longer matches the current feature extractor. Retrain the model.");
+  }
+
+  const x=tf.tensor3d([sequence]);
+  const y=model.predict(x);
+  const probs=Array.from(await y.data());
+  x.dispose(); y.dispose();
+
+  const ranked=probs.map((p,i)=>({label:classNames[i],p})).sort((a,b)=>b.p-a.p);
+  return {best:ranked[0],ranked};
+}
+
+function renderLineAnalysis(tricks,duration){
+  const results=$("lineResults");
+  const timeline=$("lineTimeline");
+  const summary=$("lineSummary");
+
+  results.innerHTML="";
+  timeline.innerHTML="";
+  timeline.style.display="block";
+  summary.style.display="grid";
+
+  let total=0;
+
+  tricks.forEach((trick,index)=>{
+    const identifiedTrick = trick.best.label;
+    const points = scoreFor(identifiedTrick);
+    total += points;
+
+    const startPct=(trick.start/duration)*100;
+    const widthPct=Math.max(1,((trick.end-trick.start)/duration)*100);
+    const seg=document.createElement("div");
+    seg.className="timelineSeg";
+    seg.style.left=startPct+"%";
+    seg.style.width=widthPct+"%";
+    seg.title=`${index+1}. ${trick.best.label} ${(trick.best.p*100).toFixed(0)}%`;
+    timeline.appendChild(seg);
+
+    const row=document.createElement("div");
+    row.className="lineTrick";
+    row.innerHTML=`
+      <div class="lineTime">${trick.start.toFixed(1)}–${trick.end.toFixed(1)}s</div>
+      <div>
+        <div class="lineName">${esc(identifiedTrick)}</div>
+        <div class="lineMeta">${(trick.best.p*100).toFixed(1)}% confidence · candidate ${index+1}${points===0 ? " · no score assigned" : ""}</div>
+      </div>
+      <div class="linePts">${points} pts</div>`;
+    results.appendChild(row);
+  });
+
+  $("lineTrickCount").textContent=tricks.length;
+  $("lineTotalPoints").textContent=
