@@ -1,0 +1,238 @@
+r.length}</span></div>`;
+    }).join("");
+  }
+  refreshCorrectionOptions();
+  setBusy(busy);
+  renderScores();
+}
+
+$("processBtn").addEventListener("click",async()=>{
+  const label=$("labelInput").value.trim();
+  const files=[...$("trainFiles").files];
+  const steps=clamp(parseInt($("stepsInput").value)||32,16,64);
+  if(!label)return alert("Enter the trick label first.");
+  if(!files.length)return alert("Select one or more training videos.");
+
+  setBusy(true);
+  let added=0,failed=0;
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+    try{
+      const r=await extractSequence(file,steps,(n,total,found)=>{
+        $("trainStatus").textContent=`Tracking ${file.name}\nVideo ${i+1}/${files.length} · sample ${n}/${total} · pose found ${found}/${n}`;
+      });
+      dataset.push({label,name:file.name,sequence:r.sequence,quality:r.avgQuality,detectionRate:r.detectionRate,steps});
+      added++;
+      updateFolderImportState();
+renderDataset();
+    }catch(err){
+      failed++;
+      $("trainStatus").textContent=`Skipped ${file.name}: ${err.message}`;
+    }
+  }
+  $("trainFiles").value="";
+  if(added>0){
+    markDatasetChanged("Training data changed. Retrain the trick model before testing.");
+  }
+  $("trainStatus").textContent=`Finished. Added ${added} clip${added===1?"":"s"} as "${label}".`+
+    (failed?` Skipped ${failed} clip${failed===1?"":"s"} with poor/failed tracking.`:"")+
+    (added?"\nRetrain the model to include these new examples.":"");
+  setBusy(false);
+  updateFolderImportState();
+});
+
+function balancedSamples(){
+  const groups={};
+  dataset.forEach(x=>(groups[x.label]??=[]).push(x));
+  classNames=Object.keys(groups).sort();
+  const max=Math.max(...classNames.map(c=>groups[c].length));
+  const out=[];
+  for(const c of classNames){
+    const a=groups[c];
+    for(let i=0;i<max;i++)out.push(a[i%a.length]);
+  }
+  for(let i=out.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));[out[i],out[j]]=[out[j],out[i]];
+  }
+  return {samples:out,max};
+}
+
+async function trainCurrentDataset(statusTarget="trainStatus"){
+  if(new Set(dataset.map(x=>x.label)).size<2){
+    alert("Add at least two trick classes.");
+    return false;
+  }
+  setBusy(true);
+  try{
+    const {samples,max}=balancedSamples();
+    const steps=samples[0].sequence.length;
+    const featureCount=samples[0].sequence[0].length;
+    trainedSteps=steps;
+    trainedFeatureCount=featureCount;
+
+    if(samples.some(s=>!Array.isArray(s.sequence) || s.sequence.length!==steps || !Array.isArray(s.sequence[0]) || s.sequence[0].length!==featureCount)){
+      throw new Error("All clips must use the same pose sample count and feature format.");
+    }
+
+    if(model)model.dispose();
+    model=tf.sequential();
+    model.add(tf.layers.lstm({
+      inputShape:[steps,featureCount],
+      units:96,
+      returnSequences:false,
+      kernelRegularizer:tf.regularizers.l2({l2:0.0004})
+    }));
+    model.add(tf.layers.dropout({rate:.35}));
+    model.add(tf.layers.dense({units:64,activation:"relu"}));
+    model.add(tf.layers.dropout({rate:.25}));
+    model.add(tf.layers.dense({units:classNames.length,activation:"softmax"}));
+    model.compile({optimizer:tf.train.adam(.0008),loss:"categoricalCrossentropy",metrics:["accuracy"]});
+
+    const xs=tf.tensor3d(samples.map(s=>s.sequence));
+    const yIdx=tf.tensor1d(samples.map(s=>classNames.indexOf(s.label)),"int32");
+    const ys=tf.oneHot(yIdx,classNames.length); yIdx.dispose();
+
+    $(statusTarget).textContent=`Training temporal pose model…\n${steps} time steps × ${featureCount} features · balanced to ${max} examples/class`;
+
+    await model.fit(xs,ys,{
+      epochs:80,
+      batchSize:Math.max(4,Math.min(16,samples.length)),
+      shuffle:true,
+      callbacks:{
+        onEpochEnd:async(epoch,logs)=>{
+          const acc=logs.acc??logs.accuracy??0;
+          $(statusTarget).textContent=`Training ${epoch+1}/80 · loss ${logs.loss.toFixed(4)} · accuracy ${(acc*100).toFixed(1)}%\nBalanced to ${max} examples/class`;
+          await tf.nextFrame();
+        }
+      }
+    });
+    xs.dispose();ys.dispose();
+    modelDatasetRevision=datasetRevision;
+    $(statusTarget).textContent=`Model trained on ${classNames.length} tricks: ${classNames.join(", ")}.\nTraining was balanced to ${max} examples per class.`;
+    $("predictStatus").textContent="Ready. Choose a new video.";
+    if($("lineStatus")) $("lineStatus").textContent="Ready. Choose a full line video.";
+    if($("versusStatus")) $("versusStatus").textContent="Ready. Choose two full line videos.";
+    setBusy(false);
+    return true;
+  }catch(err){
+    $(statusTarget).textContent="Training error: "+err.message;
+    if(model){model.dispose();model=null}
+    modelDatasetRevision=-1;
+    setBusy(false);
+    return false;
+  }
+}
+
+$("trainBtn").addEventListener("click",()=>trainCurrentDataset("trainStatus"));
+
+$("testFile").addEventListener("change",()=>{
+  const file=$("testFile").files[0];
+  if(!file)return;
+  if(preview.src)URL.revokeObjectURL(preview.src);
+  preview.src=URL.createObjectURL(file);
+  preview.load();
+  lastAnalysis=null;
+  $("feedbackPanel").style.display="none";
+  $("result").style.display="none";
+  startPreviewTracking();
+});
+
+$("predictBtn").addEventListener("click",async()=>{
+  const file=$("testFile").files[0];
+  if(!file)return alert("Choose a test video.");
+  if(!model || modelDatasetRevision!==datasetRevision)return alert("Train the current dataset first.");
+  const steps=dataset[0]?.steps || clamp(parseInt($("stepsInput").value)||32,16,64);
+
+  setBusy(true);
+  $("result").style.display="none";
+  $("feedbackPanel").style.display="none";
+  lastAnalysis=null;
+  try{
+    const r=await extractSequence(file,steps,(n,total,found)=>{
+      $("predictStatus").textContent=`Tracking test clip · ${n}/${total} samples · pose found ${found}/${n}`;
+    });
+    const x=tf.tensor3d([r.sequence]);
+    const y=model.predict(x);
+    const probs=Array.from(await y.data());
+    x.dispose();y.dispose();
+
+    const ranked=probs.map((p,i)=>({label:classNames[i],p})).sort((a,b)=>b.p-a.p);
+    const best=ranked[0];
+    const committedPredictedPoints = scoreFor(best.label);
+    updatePredictedScore(best.label);
+    lastAnalysis={
+      name:file.name,
+      sequence:r.sequence,
+      quality:r.avgQuality,
+      detectionRate:r.detectionRate,
+      steps,
+      predictedLabel:best.label,
+      confidence:best.p
+    };
+    $("predictStatus").textContent=`Identified ${best.label} · ${committedPredictedPoints} points · tracking quality ${(r.avgQuality*100).toFixed(0)}% · pose detected ${(r.detectionRate*100).toFixed(0)}% of samples.`;
+
+    $("result").style.display="block";
+    $("result").innerHTML=
+      `<div class="help">Predicted trick</div><div class="best">${esc(best.label)}</div><div class="help">${(best.p*100).toFixed(1)}% model confidence · ${committedPredictedPoints} points</div>`+
+      ranked.map(r=>`<div class="prob"><div class="probHead"><span>${esc(r.label)}</span><span>${(r.p*100).toFixed(1)}%</span></div><div class="bar"><div class="fill" style="width:${Math.max(1,r.p*100)}%"></div></div></div>`).join("");
+
+    refreshCorrectionOptions();
+    $("correctionSelect").value=best.label;
+    $("newCorrectionLabel").value="";
+    $("feedbackStatus").textContent="Tell the app whether this guess was correct.";
+    $("feedbackPanel").style.display="block";
+  }catch(err){
+    $("predictStatus").textContent="Could not analyse test clip: "+err.message;
+  }
+  setBusy(false);
+});
+
+async function learnFromLastAnalysis(label, source){
+  if(!lastAnalysis)return;
+  label=(label||"").trim();
+  if(!label)return alert("Choose or enter the correct trick name.");
+
+  const example={
+    label,
+    name:lastAnalysis.name+` [${source}]`,
+    sequence:lastAnalysis.sequence,
+    quality:lastAnalysis.quality,
+    detectionRate:lastAnalysis.detectionRate,
+    steps:lastAnalysis.steps,
+    feedback:true
+  };
+  dataset.push(example);
+  datasetRevision++;
+  renderDataset();
+  $("feedbackStatus").textContent=`Added this clip to “${label}”. Retraining automatically…`;
+
+  // Keep the feedback clip, but invalidate the old model before retraining.
+  if(model){model.dispose();model=null}
+  modelDatasetRevision=-1;
+  setBusy(true);
+  const ok=await trainCurrentDataset("feedbackStatus");
+  if(ok){
+    $("feedbackStatus").textContent=`Learned this clip as “${label}” and retrained the model. You can test another video now.`;
+    lastAnalysis=null;
+    $("feedbackPanel").style.display="none";
+  }
+}
+
+$("confirmGuessBtn").addEventListener("click",()=>{
+  if(!lastAnalysis)return;
+  learnFromLastAnalysis(lastAnalysis.predictedLabel,"confirmed by user");
+});
+
+$("correctGuessBtn").addEventListener("click",()=>{
+  const typed=$("newCorrectionLabel").value.trim();
+  const selected=$("correctionSelect").value;
+  learnFromLastAnalysis(typed || selected,"corrected by user");
+});
+
+function resizeOverlay(){
+  if(preview.videoWidth && preview.videoHeight){
+    overlay.width=preview.videoWidth;
+    overlay.height=preview.videoHeight;
+  }
+}
+wi
