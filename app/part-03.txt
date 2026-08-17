@@ -1,0 +1,261 @@
+sitivity</label>
+      <input id="lineSensitivity" type="number" min="0.5" max="3" step="0.1" value="1.2">
+      <div class="help" style="margin-top:6px">Lower = detects more possible tricks. Higher = requires stronger rotation/movement.</div>
+    </div>
+    <button id="analyzeLineBtn" disabled>Analyze full line</button>
+  </div>
+
+  <div class="status" id="lineStatus">Train the trick model first.</div>
+  <div class="timeline" id="lineTimeline" style="display:none"></div>
+
+  <div class="lineSummary" id="lineSummary" style="display:none">
+    <div class="metric"><b id="lineTrickCount">0</b><span>tricks found</span></div>
+    <div class="metric"><b id="lineTotalPoints">0</b><span>total points</span></div>
+    <div class="metric"><b id="lineDuration">0s</b><span>video duration</span></div>
+  </div>
+
+  <div class="lineResults" id="lineResults"></div>
+
+  <details>
+    <summary>How automatic trick separation works</summary>
+    <p class="small">
+      The detector looks for sustained changes in torso angle, shoulder/hip orientation, ski angle, and normalized joint motion.
+      It merges nearby high-motion moments into one candidate trick. This is automatic, but it is not perfect: carving, crashes,
+      camera cuts, rails, or very subtle tricks can create false starts. The sensitivity control lets you tune this per video.
+    </p>
+  </details>
+</section>
+
+<section class="card notice">
+  <h2>What this version learns</h2>
+  <div class="help">
+    Every time step contains normalized joint positions, joint velocities, visibility, body-orientation features, and estimated left/right ski orientation.
+    The LSTM receives those time steps <strong>in order</strong>. Classes are balanced during training so a trick with more uploaded clips does not receive more influence simply because of its count. After a prediction, your confirmation or correction can be added as a labelled example and the model retrains automatically.
+  </div>
+  <div class="small" style="margin-top:10px"><strong>Ski tracking note:</strong> the skis are estimated from ankle, heel, and foot landmarks rather than directly detected at their physical tips/tails. For this version, reprocess original videos instead of importing older pose datasets because the model now has extra ski features.</div>
+<details>
+    <summary>Important limitations</summary>
+    <p class="small">This is still an experimental browser prototype. A skier who is tiny, heavily occluded, motion-blurred, or fully inverted can be hard for a general human pose model to track. Camera viewpoint also affects what 2D pose can reveal. For best results, use clips containing one visible skier and trim them so the trick fills most of the clip. The app tracks the body, not the physical ski tips/tails.</p>
+  </details>
+</section>
+
+<video id="workerVideo" muted playsinline style="display:none"></video>
+<canvas id="workerCanvas" style="display:none"></canvas>
+</div>
+
+<script type="module">
+import {
+  PoseLandmarker,
+  FilesetResolver,
+  DrawingUtils
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304";
+
+const MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
+const WASM_URL =
+  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm";
+
+const $ = id => document.getElementById(id);
+const preview = $("preview");
+const overlay = $("overlay");
+const overlayCtx = overlay.getContext("2d");
+const workerVideo = $("workerVideo");
+
+let poseLandmarker = null;
+let dataset = []; // {label, sequence, quality, name}
+let model = null;
+let classNames = [];
+
+let trickScores = {
+  "Frontflip": 10,
+  "Backflip": 8
+};
+
+function normalizeTrickName(label){
+  return String(label || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g,"");
+}
+
+function scoreFor(label){
+  const wanted = normalizeTrickName(label);
+  for(const [name,points] of Object.entries(trickScores)){
+    if(normalizeTrickName(name) === wanted){
+      return Number(points) || 0;
+    }
+  }
+  return 0;
+}
+
+function renderScores(){
+  const holder = $("scoreList");
+  if(!holder) return;
+
+  for(const label of [...dataset.map(x=>x.label), ...classNames]){
+    const exists = Object.keys(trickScores).some(
+      k => normalizeTrickName(k) === normalizeTrickName(label)
+    );
+    if(!exists) trickScores[label] = 0;
+  }
+
+  const names = new Set([
+    ...Object.keys(trickScores),
+    ...dataset.map(x => x.label),
+    ...classNames
+  ]);
+
+  const ordered = [...names].sort((a,b)=>a.localeCompare(b));
+
+  holder.innerHTML = ordered.length
+    ? ordered.map(label => `
+      <div class="scoreRow">
+        <div><strong>${esc(label)}</strong></div>
+        <input
+          type="number"
+          min="0"
+          step="1"
+          value="${scoreFor(label)}"
+          data-score-label="${esc(label)}"
+          aria-label="Points for ${esc(label)}">
+      </div>
+    `).join("")
+    : '<div class="help">No trick scores yet.</div>';
+
+  holder.querySelectorAll("input[data-score-label]").forEach(input => {
+    input.addEventListener("change", () => {
+      const label = input.getAttribute("data-score-label");
+      trickScores[label] = Math.max(0, Number(input.value) || 0);
+      input.value = trickScores[label];
+      updatePredictedScore();
+    });
+  });
+}
+
+function updatePredictedScore(label){
+  const box = $("scoreBox");
+  const points = $("predictedPoints");
+  if(!box || !points) return;
+
+  const resolved = label || box.dataset.label;
+  if(!resolved){
+    box.style.display = "none";
+    return;
+  }
+
+  const resolvedPoints = scoreFor(resolved);
+  box.dataset.label = resolved;
+  points.textContent = resolvedPoints;
+  box.style.display = "block";
+}
+let busy = false;
+let lineAnalysisBusy = false;
+let trainedSteps = null;
+let trainedFeatureCount = null;
+
+let previewRAF = null;
+let previewLastTime = -1;
+let inferenceTimestamp = 1;
+let lastAnalysis = null; // tracked test clip + prediction, reused for human feedback
+let modelDatasetRevision = -1;
+let datasetRevision = 0;
+function nextInferenceTimestamp(){
+  inferenceTimestamp += 34;
+  return inferenceTimestamp;
+}
+
+const IMPORTANT = [
+  0,  // nose
+  11,12, // shoulders
+  13,14, // elbows
+  15,16, // wrists
+  23,24, // hips
+  25,26, // knees
+  27,28, // ankles
+  29,30, // heels
+  31,32  // foot index
+];
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
+}
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+function dist3(a,b){
+  const dx=a.x-b.x,dy=a.y-b.y,dz=(a.z||0)-(b.z||0);
+  return Math.sqrt(dx*dx+dy*dy+dz*dz);
+}
+function mid(a,b){
+  return {x:(a.x+b.x)/2,y:(a.y+b.y)/2,z:((a.z||0)+(b.z||0))/2};
+}
+function wrapAngle(a){
+  while(a > Math.PI) a -= Math.PI*2;
+  while(a < -Math.PI) a += Math.PI*2;
+  return a;
+}
+function torsoAngle(pose){
+  const shoulder = mid(pose[11],pose[12]);
+  const hip = mid(pose[23],pose[24]);
+  // angle of hip -> shoulder in image coordinates
+  return Math.atan2(shoulder.y-hip.y,shoulder.x-hip.x);
+}
+function shoulderAngle(pose){
+  const a=pose[11],b=pose[12];
+  return Math.atan2(b.y-a.y,b.x-a.x);
+}
+function hipAngle(pose){
+  const a=pose[23],b=pose[24];
+  return Math.atan2(b.y-a.y,b.x-a.x);
+}
+
+function skiFromFoot(pose, side){
+  const ankleIdx = side==="left" ? 27 : 28;
+  const heelIdx = side==="left" ? 29 : 30;
+  const toeIdx = side==="left" ? 31 : 32;
+  const ankle = pose[ankleIdx], heel = pose[heelIdx], toe = pose[toeIdx];
+  if(!ankle || !heel || !toe) return null;
+
+  let dx = toe.x - heel.x, dy = toe.y - heel.y;
+  const mag = Math.sqrt(dx*dx + dy*dy);
+  if(mag < 1e-5) return null;
+  dx /= mag; dy /= mag;
+
+  const shoulderWidth = Math.max(
+    Math.hypot(pose[11].x-pose[12].x, pose[11].y-pose[12].y),
+    0.04
+  );
+  const halfLength = shoulderWidth * 1.8;
+  const center = {
+    x:(ankle.x + toe.x + heel.x)/3,
+    y:(ankle.y + toe.y + heel.y)/3
+  };
+
+  return {
+    center,
+    tip:{x:center.x + dx*halfLength, y:center.y + dy*halfLength},
+    tail:{x:center.x - dx*halfLength, y:center.y - dy*halfLength},
+    angle:Math.atan2(dy,dx),
+    visibility:Math.min(ankle.visibility ?? 0, heel.visibility ?? 0, toe.visibility ?? 0)
+  };
+}
+
+function skiFeaturesFromPose(pose){
+  const left = skiFromFoot(pose,"left");
+  const right = skiFromFoot(pose,"right");
+  if(!left || !right){
+    return {leftAngle:0,rightAngle:0,separation:0,crossing:0,parallelness:0,leftVisibility:0,rightVisibility:0,left,right};
+  }
+
+  const separation = Math.hypot(left.center.x-right.center.x,left.center.y-right.center.y);
+  const diff = Math.abs(wrapAngle(left.angle-right.angle));
+  const parallelness = Math.abs(Math.cos(diff));
+
+  function orient(a,b,c){
+    return (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x);
+  }
+  const o1=orient(left.tail,left.tip,right.tail);
+  const o2=orient(left.tail,left.tip,right.tip);
+  const o3=orient(right.tail,right.tip,left.tail);
+  const o4=orient(right.tail,right.tip,left.tip);
+  const crossing=((o1*o2
