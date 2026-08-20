@@ -34,7 +34,6 @@
           .topnav a[href="#trainingCard"],.topnav a[href="#testCard"],.topnav a[href="#scoringArea"]{display:none!important}
           .grid{grid-template-columns:1fr!important;max-width:920px;margin:0 auto}
           header{max-width:920px;margin:0 auto}
-          #winnerBox{display:none!important}
           #compareBtn:disabled,#analyzeLineBtn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none!important;transform:none!important}
         </style>`;
         html=html.replace('</head>',publicCss+'</head>');
@@ -51,20 +50,14 @@
             const vsStatus=document.getElementById('versusStatus');
             const compareBtn=document.getElementById('compareBtn');
             const analyzeBtn=document.getElementById('analyzeLineBtn');
-            const winnerBox=document.getElementById('winnerBox');
-
-            if(winnerBox) winnerBox.style.display='none';
-
-            const modelReady=(typeof model!=='undefined' && !!model);
-            if(!modelReady){
-              if(compareBtn) compareBtn.disabled=true;
-              if(analyzeBtn) analyzeBtn.disabled=true;
-              if(lineStatus) lineStatus.textContent='AI model is not ready yet. Train and publish the model from the private trainer first.';
-              if(vsStatus) vsStatus.textContent='AI model is not ready yet. Train and publish the model from the private trainer first.';
-            }
+            if(compareBtn) compareBtn.disabled=true;
+            if(analyzeBtn) analyzeBtn.disabled=true;
+            if(lineStatus) lineStatus.textContent='Loading trained Ski Trick AI model...';
+            if(vsStatus) vsStatus.textContent='Loading trained Ski Trick AI model...';
           });
         <\/script>`;
-        html=html.replace('</body>',publicScript+'</body>');
+
+        html=html.replace('</body>',publicScript+'<script src="/public-model.js?v=1"><\/script></body>');
 
         document.open();
         document.write(html);
