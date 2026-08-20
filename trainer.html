@@ -21,7 +21,7 @@
         let html=(await Promise.all(responses.map(r=>r.text()))).join("");
 
         const libraryCss=`<style>
-          .supabaseLibrary{margin-top:26px;padding-top:24px;border-top:1px solid #e8e8ed}
+          .supabaseLibrary{margin:0 0 30px;padding:0 0 28px;border-bottom:1px solid #e8e8ed}
           .supabaseGrid{display:grid;gap:0;margin-top:14px;border-top:1px solid #e8e8ed}
           .supabaseClass{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid #e8e8ed}
           .supabaseActions{display:flex;gap:18px;flex-wrap:wrap;margin-top:20px;margin-bottom:12px}
@@ -29,34 +29,40 @@
         </style>`;
         html=html.replace('</head>',libraryCss+'</head>');
 
+        const libraryHtml=`
+          <div class="supabaseLibrary" id="supabaseLibrarySection">
+            <div class="sectionEyebrow">Cloud training library</div>
+            <h3>Supabase training videos</h3>
+            <div class="help">Loads every trick folder from the private <strong>training videos</strong> bucket. Each folder name becomes the trick label automatically.</div>
+            <div class="supabaseActions">
+              <button id="loadSupabaseLibrary" type="button" class="secondary">Check Supabase library</button>
+              <button id="importSupabaseLibrary" type="button" disabled>Import all into trainer</button>
+              <button id="exportTrainedModel" type="button" class="secondary">Export trained AI</button>
+            </div>
+            <div class="status" id="supabaseLibraryStatus">Waiting to check the training library.</div>
+            <div class="supabaseGrid" id="supabaseLibraryList"></div>
+            <div class="debugBox" id="supabaseDebug">API endpoint: /api/training-library</div>
+          </div>`;
+
+        html=html.replace(
+          '<section class="card" id="trainingCard">',
+          '<section class="card" id="trainingCard">'+libraryHtml
+        );
+
         const libraryScript=`<script>
-          window.addEventListener('DOMContentLoaded',()=>{
-            const training=document.getElementById('trainingCard');
-            if(!training) return;
-
-            const section=document.createElement('div');
-            section.className='supabaseLibrary';
-            section.innerHTML=\`
-              <div class="sectionEyebrow">Cloud training library</div>
-              <h3>Supabase training videos</h3>
-              <div class="help">Loads every trick folder from the private <strong>training videos</strong> bucket. The folder name becomes the trick label.</div>
-              <div class="supabaseActions">
-                <button id="loadSupabaseLibrary" type="button" class="secondary">Check Supabase library</button>
-                <button id="importSupabaseLibrary" type="button" disabled>Import all into trainer</button>
-                <button id="exportTrainedModel" type="button" class="secondary">Export trained AI</button>
-              </div>
-              <div class="status" id="supabaseLibraryStatus">Waiting to check the training library.</div>
-              <div class="supabaseGrid" id="supabaseLibraryList"></div>
-              <div class="debugBox" id="supabaseDebug">API endpoint: /api/training-library</div>
-            \`;
-            training.prepend(section);
-
-            let library=null;
+          (()=>{
             const status=document.getElementById('supabaseLibraryStatus');
             const list=document.getElementById('supabaseLibraryList');
             const importBtn=document.getElementById('importSupabaseLibrary');
             const debug=document.getElementById('supabaseDebug');
             const loadBtn=document.getElementById('loadSupabaseLibrary');
+            const exportBtn=document.getElementById('exportTrainedModel');
+            let library=null;
+
+            if(!status || !list || !importBtn || !loadBtn){
+              console.error('Supabase trainer controls were not rendered.');
+              return;
+            }
 
             async function loadLibrary(){
               status.textContent='Connecting to the private Supabase training library…';
@@ -67,38 +73,31 @@
 
               const controller=new AbortController();
               const timer=setTimeout(()=>controller.abort(),12000);
-
               try{
                 const response=await fetch('/api/training-library?ts='+Date.now(),{
                   cache:'no-store',
                   signal:controller.signal,
-                  headers:{'accept':'application/json'}
+                  headers:{accept:'application/json'}
                 });
-
                 const raw=await response.text();
-                let data;
-                try{ data=raw ? JSON.parse(raw) : {}; }
-                catch(_){
-                  throw new Error('The Vercel API returned non-JSON output (HTTP '+response.status+'). First response: '+raw.slice(0,160));
-                }
-
-                if(!response.ok){
-                  throw new Error(data.error || ('Vercel API returned HTTP '+response.status));
-                }
+                let data={};
+                try{ data=raw?JSON.parse(raw):{}; }
+                catch(_){ throw new Error('API returned non-JSON output (HTTP '+response.status+'). '+raw.slice(0,180)); }
+                if(!response.ok) throw new Error(data.error || ('API returned HTTP '+response.status));
 
                 library=data;
-                status.textContent=\`Connected. Found \${data.videoCount} videos across \${data.classCount} trick folders.\`;
+                status.textContent='Connected. Found '+data.videoCount+' videos across '+data.classCount+' trick folders.';
                 debug.textContent='Connection successful. Bucket: '+(data.bucket || 'training videos');
-                list.innerHTML=data.classes.map(item=>\`
-                  <div class="supabaseClass"><strong>\${item.label}</strong><span>\${item.videos.length} videos</span></div>
-                \`).join('');
+                list.innerHTML=(data.classes||[]).map(item=>
+                  '<div class="supabaseClass"><strong>'+item.label+'</strong><span>'+item.videos.length+' videos</span></div>'
+                ).join('');
                 importBtn.disabled=!data.videoCount;
               }catch(err){
                 const message=err && err.name==='AbortError'
-                  ? 'The Vercel API did not answer within 12 seconds. Check that the latest deployment includes the /api function and that the environment variables were added to Production.'
-                  : err.message;
+                  ? 'The Vercel API did not answer within 12 seconds. Check the latest Production deployment and environment variables.'
+                  : (err.message || String(err));
                 status.textContent='Supabase connection error: '+message;
-                debug.textContent='Diagnostic: '+message+'\nTry opening /api/training-library directly in a new browser tab.';
+                debug.textContent='Diagnostic: '+message+'\nOpen /api/training-library in a new tab to inspect the raw response.';
               }finally{
                 clearTimeout(timer);
                 loadBtn.disabled=false;
@@ -106,37 +105,39 @@
             }
 
             loadBtn.addEventListener('click',loadLibrary);
+
             importBtn.addEventListener('click',async()=>{
               if(!library) return;
-              const entries=library.classes.flatMap(group=>group.videos.map(video=>({...video,label:group.label})));
+              const entries=(library.classes||[]).flatMap(group=>(group.videos||[]).map(video=>({...video,label:group.label})));
               if(typeof window.skiTrainerImportRemote!=='function'){
-                status.textContent='Trainer is still loading. Try again in a moment.';
+                status.textContent='Trainer import engine is still loading. Try again in a moment.';
                 return;
               }
               importBtn.disabled=true;
-              status.textContent=\`Importing \${entries.length} videos. This can take a while because each video is pose-tracked locally.\`;
+              status.textContent='Importing '+entries.length+' videos. Each video is being pose-tracked locally.';
               try{
                 const result=await window.skiTrainerImportRemote(entries);
-                status.textContent=\`Imported \${result.added} videos into the trainer. \${result.failed} skipped. Now press Train trick model.\`;
+                status.textContent='Imported '+result.added+' videos into the trainer. '+result.failed+' skipped. Now press Train trick model.';
               }catch(err){
                 status.textContent='Import failed: '+err.message;
+              }finally{
+                importBtn.disabled=false;
               }
-              importBtn.disabled=false;
             });
 
-            document.getElementById('exportTrainedModel').addEventListener('click',async()=>{
+            exportBtn.addEventListener('click',async()=>{
               try{
-                if(typeof window.skiTrainerExportModel!=='function') throw new Error('Trainer is still loading.');
+                if(typeof window.skiTrainerExportModel!=='function') throw new Error('Train the model first or wait for the trainer to finish loading.');
                 status.textContent='Exporting the trained model…';
                 await window.skiTrainerExportModel();
-                status.textContent='Export complete. Keep the downloaded model JSON, weights file, and config file together.';
+                status.textContent='Export complete. Keep the model JSON, weights file, and config file together.';
               }catch(err){
                 status.textContent='Export failed: '+err.message;
               }
             });
 
-            setTimeout(loadLibrary,300);
-          });
+            setTimeout(loadLibrary,500);
+          })();
         <\/script>`;
         html=html.replace('</body>',libraryScript+'</body>');
 
