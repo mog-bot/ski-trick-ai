@@ -71,6 +71,50 @@ let trickScores = {
   "Backflip": 8
 };
 
+let busy = false;
+let lineAnalysisBusy = false;
+let trainedSteps = null;
+let trainedFeatureCount = null;
+
+let previewRAF = null;
+let previewLastTime = -1;
+let inferenceTimestamp = 1;
+let lastAnalysis = null;
+let modelDatasetRevision = -1;
+let datasetRevision = 0;
+
+/* Public-model bridge. The main analysis engine lives inside this ES module,
+   so external scripts must install the saved model through this function
+   instead of assigning a separate global `model` variable. */
+window.skiAppInstallModel = async function(payload){
+  if(!payload?.modelTopology || !Array.isArray(payload.weightSpecs) || !payload.weightData){
+    throw new Error("Saved model payload is incomplete.");
+  }
+
+  const loaded = await tf.loadLayersModel(tf.io.fromMemory({
+    modelTopology: payload.modelTopology,
+    weightSpecs: payload.weightSpecs,
+    weightData: payload.weightData
+  }));
+
+  if(model) model.dispose();
+  model = loaded;
+
+  const config = payload.config || {};
+  classNames = Array.isArray(config.classNames) ? [...config.classNames] : [];
+  trickScores = config.trickScores && typeof config.trickScores === "object"
+    ? {...config.trickScores}
+    : {};
+  trainedSteps = Number(config.trainedSteps) || 48;
+  trainedFeatureCount = Number(config.trainedFeatureCount) || 0;
+  modelDatasetRevision = datasetRevision;
+
+  if(!classNames.length) throw new Error("Saved model has no trick classes.");
+  return {classNames:[...classNames],trainedSteps,trainedFeatureCount};
+};
+
+window.skiAppModelReady = function(){ return !!model && classNames.length>0; };
+
 function normalizeTrickName(label){
   return String(label || "")
     .trim()
@@ -148,17 +192,6 @@ function updatePredictedScore(label){
   points.textContent = resolvedPoints;
   box.style.display = "block";
 }
-let busy = false;
-let lineAnalysisBusy = false;
-let trainedSteps = null;
-let trainedFeatureCount = null;
-
-let previewRAF = null;
-let previewLastTime = -1;
-let inferenceTimestamp = 1;
-let lastAnalysis = null; // tracked test clip + prediction, reused for human feedback
-let modelDatasetRevision = -1;
-let datasetRevision = 0;
 function nextInferenceTimestamp(){
   inferenceTimestamp += 34;
   return inferenceTimestamp;
