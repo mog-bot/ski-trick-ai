@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const BUCKET = 'training videos';
+const INTERNAL_FOLDERS = new Set(['_model']);
 
 function sendJson(res, status, body) {
   res.statusCode = status;
@@ -41,7 +42,9 @@ export default async function handler(req, res) {
 
     if (rootError) throw rootError;
 
-    const folders = (root || []).filter(item => item.id == null);
+    const folders = (root || []).filter(item =>
+      item.id == null && !INTERNAL_FOLDERS.has(item.name)
+    );
     const classes = [];
 
     for (const folder of folders) {
