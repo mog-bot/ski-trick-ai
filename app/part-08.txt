@@ -125,6 +125,80 @@ $("importFolderBtn")?.addEventListener("click",async()=>{
   setBusy(false);
 });
 
+window.skiTrainerImportRemote = async function(entries){
+  if(!Array.isArray(entries) || !entries.length) throw new Error("No Supabase training videos were supplied.");
+  if(!poseLandmarker) throw new Error("The body-tracking model is still loading.");
+
+  const steps=clamp(parseInt($("stepsInput").value)||48,16,64);
+  let added=0,failed=0;
+  setBusy(true);
+
+  try{
+    for(let i=0;i<entries.length;i++){
+      const entry=entries[i];
+      const label=String(entry.label||"").trim();
+      if(!label || !entry.signedUrl){ failed++; continue; }
+
+      try{
+        $("trainStatus").textContent=`Supabase ${i+1}/${entries.length} · downloading ${label}/${entry.name}`;
+        const response=await fetch(entry.signedUrl,{cache:"no-store"});
+        if(!response.ok) throw new Error(`Download failed (${response.status})`);
+        const blob=await response.blob();
+        const file=new File([blob],entry.name||`training-${i+1}.mp4`,{
+          type:entry.mimeType || blob.type || "video/mp4"
+        });
+
+        const r=await extractSequence(file,steps,(n,total,found)=>{
+          $("trainStatus").textContent=`Supabase ${i+1}/${entries.length} · ${label}/${file.name}\nPose sample ${n}/${total} · found ${found}/${n}`;
+        });
+
+        dataset.push({
+          label,
+          name:`Supabase/${label}/${file.name}`,
+          sequence:r.sequence,
+          quality:r.avgQuality,
+          detectionRate:r.detectionRate,
+          steps,
+          remote:true
+        });
+        added++;
+        renderDataset();
+      }catch(err){
+        failed++;
+        $("trainStatus").textContent=`Skipped ${label}/${entry.name}: ${err.message}`;
+      }
+    }
+
+    if(added>0) markDatasetChanged("Supabase training data imported. Train the trick model before testing.");
+    $("trainStatus").textContent=`Supabase import finished. Added ${added} clip${added===1?"":"s"}.`+
+      (failed?` Skipped ${failed} clip${failed===1?"":"s"}.`:"");
+    return {added,failed};
+  } finally {
+    setBusy(false);
+  }
+};
+
+window.skiTrainerExportModel = async function(){
+  if(!model || modelDatasetRevision!==datasetRevision) throw new Error("Train the current dataset before exporting the model.");
+  await model.save("downloads://ski-trick-model");
+  const config={
+    version:1,
+    created:new Date().toISOString(),
+    classNames,
+    trickScores,
+    trainedSteps,
+    trainedFeatureCount
+  };
+  const blob=new Blob([JSON.stringify(config,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="ski-trick-model-config.json";
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),500);
+  return config;
+};
+
 renderDataset();
 </script>
 </body>
