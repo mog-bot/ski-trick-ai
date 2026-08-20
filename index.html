@@ -34,7 +34,8 @@
           .topnav a[href="#trainingCard"],.topnav a[href="#testCard"],.topnav a[href="#scoringArea"]{display:none!important}
           .grid{grid-template-columns:1fr!important;max-width:920px;margin:0 auto}
           header{max-width:920px;margin:0 auto}
-          .publicNote{padding:14px 0;color:#6e6e73;font-size:.9rem}
+          #winnerBox{display:none!important}
+          #compareBtn:disabled,#analyzeLineBtn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none!important;transform:none!important}
         </style>`;
         html=html.replace('</head>',publicCss+'</head>');
 
@@ -47,13 +48,19 @@
             });
 
             const lineStatus=document.getElementById('lineStatus');
-            if(lineStatus && /Train the trick model first/i.test(lineStatus.textContent)){
-              lineStatus.textContent='Pre-trained Ski Trick AI model has not been installed yet.';
-            }
-
             const vsStatus=document.getElementById('versusStatus');
-            if(vsStatus && /Train the trick model first/i.test(vsStatus.textContent)){
-              vsStatus.textContent='Pre-trained Ski Trick AI model has not been installed yet.';
+            const compareBtn=document.getElementById('compareBtn');
+            const analyzeBtn=document.getElementById('analyzeLineBtn');
+            const winnerBox=document.getElementById('winnerBox');
+
+            if(winnerBox) winnerBox.style.display='none';
+
+            const modelReady=(typeof model!=='undefined' && !!model);
+            if(!modelReady){
+              if(compareBtn) compareBtn.disabled=true;
+              if(analyzeBtn) analyzeBtn.disabled=true;
+              if(lineStatus) lineStatus.textContent='AI model is not ready yet. Train and publish the model from the private trainer first.';
+              if(vsStatus) vsStatus.textContent='AI model is not ready yet. Train and publish the model from the private trainer first.';
             }
           });
         <\/script>`;
