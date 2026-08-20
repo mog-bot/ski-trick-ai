@@ -2,27 +2,36 @@
   function start() {
     const status = document.getElementById('supabaseLibraryStatus');
     const list = document.getElementById('supabaseLibraryList');
-    const importBtn = document.getElementById('importSupabaseLibrary');
     const debug = document.getElementById('supabaseDebug');
-    const loadBtn = document.getElementById('loadSupabaseLibrary');
     const exportBtn = document.getElementById('exportTrainedModel');
 
-    if (!status || !list || !importBtn || !loadBtn || !exportBtn) {
+    if (!status || !list || !debug || !exportBtn) {
       setTimeout(start, 250);
       return;
     }
 
-    let library = null;
+    let importStarted = false;
 
-    async function loadLibrary() {
-      status.textContent = 'Connecting to the private Supabase training library...';
-      debug.textContent = 'Calling /api/training-library...';
-      importBtn.disabled = true;
-      loadBtn.disabled = true;
+    async function waitForTrainerEngine(timeoutMs = 30000) {
+      const started = Date.now();
+      while (typeof window.skiTrainerImportRemote !== 'function') {
+        if (Date.now() - started > timeoutMs) {
+          throw new Error('The training engine did not become ready in time. Reload the page and try again.');
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+    }
+
+    async function connectAndImport() {
+      if (importStarted) return;
+      importStarted = true;
+
+      status.textContent = 'Connecting to Supabase and loading the training library...';
+      debug.textContent = 'Reading /api/training-library...';
       list.innerHTML = '';
 
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 12000);
+      const timer = setTimeout(() => controller.abort(), 15000);
 
       try {
         const response = await fetch('/api/training-library?ts=' + Date.now(), {
@@ -43,49 +52,44 @@
           throw new Error(data.error || ('API returned HTTP ' + response.status));
         }
 
-        library = data;
-        status.textContent = 'Connected. Found ' + data.videoCount + ' videos across ' + data.classCount + ' trick folders.';
-        debug.textContent = 'Connection successful. Bucket: ' + (data.bucket || 'training videos');
-        list.innerHTML = (data.classes || []).map(item =>
+        const classes = data.classes || [];
+        const entries = classes.flatMap(group =>
+          (group.videos || []).map(video => ({ ...video, label: group.label }))
+        );
+
+        list.innerHTML = classes.map(item =>
           '<div class="supabaseClass"><strong>' + item.label + '</strong><span>' + item.videos.length + ' videos</span></div>'
         ).join('');
-        importBtn.disabled = !data.videoCount;
+
+        if (!entries.length) {
+          status.textContent = 'Connected to Supabase, but no training videos were found.';
+          debug.textContent = 'Add videos to trick folders inside the training videos bucket, then reload this page.';
+          return;
+        }
+
+        status.textContent = 'Connected. Found ' + entries.length + ' videos across ' + classes.length + ' trick folders. Preparing automatic import...';
+        debug.textContent = 'Supabase connected successfully. Waiting for the pose-tracking training engine...';
+
+        await waitForTrainerEngine();
+
+        status.textContent = 'Importing all ' + entries.length + ' Supabase videos into the AI trainer automatically. This can take a while because each clip is pose-tracked locally.';
+        debug.textContent = 'Automatic cloud import in progress. Keep this page open until it finishes.';
+
+        const result = await window.skiTrainerImportRemote(entries);
+
+        status.textContent = 'Cloud dataset ready. Imported ' + result.added + ' videos automatically' + (result.failed ? '; ' + result.failed + ' were skipped because tracking was too weak.' : '.');
+        debug.textContent = 'Supabase is now the training source. Add/remove videos in Supabase and reload this page to rebuild the dataset.';
       } catch (err) {
         const message = err && err.name === 'AbortError'
-          ? 'The Vercel API did not answer within 12 seconds. Check the latest Production deployment and environment variables.'
+          ? 'The Vercel API did not answer within 15 seconds.'
           : (err.message || String(err));
-        status.textContent = 'Supabase connection error: ' + message;
-        debug.textContent = 'Diagnostic: ' + message + '\nOpen /api/training-library in a new tab to inspect the raw response.';
+        status.textContent = 'Automatic Supabase training import failed: ' + message;
+        debug.textContent = 'Diagnostic: ' + message + '\nReload after checking the latest Vercel deployment and Supabase connection.';
+        importStarted = false;
       } finally {
         clearTimeout(timer);
-        loadBtn.disabled = false;
       }
     }
-
-    loadBtn.addEventListener('click', loadLibrary);
-
-    importBtn.addEventListener('click', async () => {
-      if (!library) return;
-      const entries = (library.classes || []).flatMap(group =>
-        (group.videos || []).map(video => ({ ...video, label: group.label }))
-      );
-
-      if (typeof window.skiTrainerImportRemote !== 'function') {
-        status.textContent = 'Trainer import engine is still loading. Try again in a moment.';
-        return;
-      }
-
-      importBtn.disabled = true;
-      status.textContent = 'Importing ' + entries.length + ' videos. Each video is being pose-tracked locally.';
-      try {
-        const result = await window.skiTrainerImportRemote(entries);
-        status.textContent = 'Imported ' + result.added + ' videos into the trainer. ' + result.failed + ' skipped. Now press Train trick model.';
-      } catch (err) {
-        status.textContent = 'Import failed: ' + err.message;
-      } finally {
-        importBtn.disabled = false;
-      }
-    });
 
     exportBtn.addEventListener('click', async () => {
       try {
@@ -100,7 +104,7 @@
       }
     });
 
-    setTimeout(loadLibrary, 400);
+    setTimeout(connectAndImport, 500);
   }
 
   if (document.readyState === 'loading') {
