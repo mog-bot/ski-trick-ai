@@ -14,17 +14,13 @@ function updateFolderImportState(){
   const files=[...($("folderFiles")?.files || [])].filter(f=>f.type.startsWith("video/"));
   const label=$("folderTrickLabel")?.value.trim() || "";
 
-  // Allow the user to click only when a label and at least one video are present.
-  // MediaPipe readiness is checked when import actually starts.
-  btn.disabled = busy || !label || files.length===0;
+  const hasVideo = files.length > 0;
+  btn.disabled = busy || !label || !hasVideo;
 }
 
 function inferSingleFolderLabel(files){
   if(!files.length) return "";
   const rel = files[0].webkitRelativePath || "";
-
-  // For a selected folder like Backflip/clip1.mp4,
-  // the first path component is the folder name.
   const parts = rel.split("/").filter(Boolean);
   return parts.length >= 2 ? parts[0].trim() : "";
 }
@@ -176,6 +172,60 @@ window.skiTrainerImportRemote = async function(entries){
   } finally {
     setBusy(false);
   }
+};
+
+function arrayBufferToBase64(buffer){
+  const bytes=new Uint8Array(buffer);
+  let binary="";
+  const chunk=0x8000;
+  for(let i=0;i<bytes.length;i+=chunk){
+    binary+=String.fromCharCode(...bytes.subarray(i,Math.min(bytes.length,i+chunk)));
+  }
+  return btoa(binary);
+}
+
+window.skiTrainerPublishModel = async function(){
+  if(!model || modelDatasetRevision!==datasetRevision) throw new Error("Train the current Supabase dataset before publishing the model.");
+
+  let captured=null;
+  await model.save(tf.io.withSaveHandler(async artifacts=>{
+    captured=artifacts;
+    return {
+      modelArtifactsInfo:{
+        dateSaved:new Date(),
+        modelTopologyType:"JSON",
+        modelTopologyBytes:JSON.stringify(artifacts.modelTopology||{}).length,
+        weightSpecsBytes:JSON.stringify(artifacts.weightSpecs||[]).length,
+        weightDataBytes:artifacts.weightData?.byteLength||0
+      }
+    };
+  }));
+
+  if(!captured?.weightData) throw new Error("Could not capture trained model weights.");
+
+  const config={
+    version:2,
+    created:new Date().toISOString(),
+    classNames:[...classNames],
+    trickScores:{...trickScores},
+    trainedSteps,
+    trainedFeatureCount
+  };
+
+  const response=await fetch("/api/model",{
+    method:"POST",
+    headers:{"content-type":"application/json"},
+    body:JSON.stringify({
+      modelTopology:captured.modelTopology,
+      weightSpecs:captured.weightSpecs,
+      weightDataBase64:arrayBufferToBase64(captured.weightData),
+      config
+    })
+  });
+
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok) throw new Error(data.error||`Model publish failed (${response.status})`);
+  return config;
 };
 
 window.skiTrainerExportModel = async function(){
