@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ski Trick AI Trainer</title>
+  <style>
+    body{margin:0;background:#f5f5f7;color:#1d1d1f;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;display:grid;place-items:center;min-height:100vh}
+    .loader{text-align:center;padding:32px}.loader strong{font-size:1.25rem}.loader p{color:#6e6e73}
+  </style>
+</head>
+<body>
+  <div class="loader"><strong>Loading Ski Trick AI Trainer…</strong><p id="status">Preparing training tools.</p></div>
+  <script>
+    (async()=>{
+      try{
+        const parts=Array.from({length:8},(_,i)=>`app/part-${String(i+1).padStart(2,"0")}.txt`);
+        const responses=await Promise.all(parts.map(p=>fetch(p,{cache:"no-store"})));
+        const failed=responses.findIndex(r=>!r.ok);
+        if(failed!==-1) throw new Error(`Could not load ${parts[failed]}`);
+        let html=(await Promise.all(responses.map(r=>r.text()))).join("");
+
+        const libraryCss=`<style>
+          .supabaseLibrary{margin-top:26px;padding-top:24px;border-top:1px solid #e8e8ed}
+          .supabaseGrid{display:grid;gap:0;margin-top:14px;border-top:1px solid #e8e8ed}
+          .supabaseClass{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid #e8e8ed}
+          .supabaseActions{display:flex;gap:18px;flex-wrap:wrap;margin-top:20px;margin-bottom:12px}
+        </style>`;
+        html=html.replace('</head>',libraryCss+'</head>');
+
+        const libraryScript=`<script>
+          window.addEventListener('DOMContentLoaded',()=>{
+            const training=document.getElementById('trainingCard');
+            if(!training) return;
+
+            const section=document.createElement('div');
+            section.className='supabaseLibrary';
+            section.innerHTML=\`
+              <div class="sectionEyebrow">Cloud training library</div>
+              <h3>Supabase training videos</h3>
+              <div class="help">Loads every trick folder from the private <strong>training videos</strong> bucket. The folder name becomes the trick label.</div>
+              <div class="supabaseActions">
+                <button id="loadSupabaseLibrary" type="button" class="secondary">Check Supabase library</button>
+                <button id="importSupabaseLibrary" type="button" disabled>Import all into trainer</button>
+                <button id="exportTrainedModel" type="button" class="secondary">Export trained AI</button>
+              </div>
+              <div class="status" id="supabaseLibraryStatus">Waiting to check the training library.</div>
+              <div class="supabaseGrid" id="supabaseLibraryList"></div>
+            \`;
+            training.prepend(section);
+
+            let library=null;
+            const status=document.getElementById('supabaseLibraryStatus');
+            const list=document.getElementById('supabaseLibraryList');
+            const importBtn=document.getElementById('importSupabaseLibrary');
+
+            async function loadLibrary(){
+              status.textContent='Connecting to the private Supabase training library…';
+              importBtn.disabled=true;
+              list.innerHTML='';
+              try{
+                const response=await fetch('/api/training-library',{cache:'no-store'});
+                const data=await response.json();
+                if(!response.ok) throw new Error(data.error || 'Could not load Supabase library.');
+                library=data;
+                status.textContent=\`Found \${data.videoCount} videos across \${data.classCount} trick folders.\`;
+                list.innerHTML=data.classes.map(item=>\`
+                  <div class="supabaseClass"><strong>\${item.label}</strong><span>\${item.videos.length} videos</span></div>
+                \`).join('');
+                importBtn.disabled=!data.videoCount;
+              }catch(err){
+                status.textContent='Supabase connection error: '+err.message;
+              }
+            }
+
+            document.getElementById('loadSupabaseLibrary').addEventListener('click',loadLibrary);
+            importBtn.addEventListener('click',async()=>{
+              if(!library) return;
+              const entries=library.classes.flatMap(group=>group.videos.map(video=>({...video,label:group.label})));
+              if(typeof window.skiTrainerImportRemote!=='function'){
+                status.textContent='Trainer is still loading. Try again in a moment.';
+                return;
+              }
+              importBtn.disabled=true;
+              status.textContent=\`Importing \${entries.length} videos. This can take a while because each video is pose-tracked locally.\`;
+              try{
+                const result=await window.skiTrainerImportRemote(entries);
+                status.textContent=\`Imported \${result.added} videos into the trainer. \${result.failed} skipped. Now press Train trick model.\`;
+              }catch(err){
+                status.textContent='Import failed: '+err.message;
+              }
+              importBtn.disabled=false;
+            });
+
+            document.getElementById('exportTrainedModel').addEventListener('click',async()=>{
+              try{
+                if(typeof window.skiTrainerExportModel!=='function') throw new Error('Trainer is still loading.');
+                status.textContent='Exporting the trained model…';
+                await window.skiTrainerExportModel();
+                status.textContent='Export complete. Keep the downloaded model JSON, weights file, and config file together.';
+              }catch(err){
+                status.textContent='Export failed: '+err.message;
+              }
+            });
+
+            loadLibrary();
+          });
+        <\/script>`;
+        html=html.replace('</body>',libraryScript+'</body>');
+
+        document.open();
+        document.write(html);
+        document.close();
+      }catch(err){
+        document.getElementById('status').textContent='The trainer could not load: '+err.message;
+      }
+    })();
+  </script>
+</body>
+</html>
