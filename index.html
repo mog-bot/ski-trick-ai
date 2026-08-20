@@ -22,16 +22,16 @@
 
         html=html
           .replace('<h1>Ski Trick AI<br>Pose Trainer</h1>','<h1>Ski Trick AI</h1>')
-          .replace(/<p class="sub">[\s\S]*?<\/p>/,'<p class="sub">Upload a ski line, track the skier, identify the tricks, and calculate the score.</p>')
+          .replace(/<p class="sub">[\s\S]*?<\/p>/,'<p class="sub">Upload a ski line. The AI tracks the skier, identifies each trick, and calculates the score.</p>')
           .replace('<div class="badge">Pose + LSTM + feedback learning</div>','<div class="badge">AI line tracking + trick scoring</div>')
           .replace('<a href="#trainingCard">Train</a>','')
+          .replace('<a href="#testCard">Identify</a>','')
           .replace('<a href="#scoringArea">Points</a>','');
 
         const publicCss=`<style>
-          #trainingCard{display:none!important}
+          #trainingCard,#testCard{display:none!important}
           #scoringArea,#scoreList,.scoreGrid,#addScoreBtn,#feedbackPanel{display:none!important}
-          #testCard>hr:first-of-type{display:none!important}
-          .topnav a[href="#testCard"]{display:none!important}
+          .topnav a[href="#trainingCard"],.topnav a[href="#testCard"],.topnav a[href="#scoringArea"]{display:none!important}
           .grid{grid-template-columns:1fr!important;max-width:920px;margin:0 auto}
           header{max-width:920px;margin:0 auto}
           .publicNote{padding:14px 0;color:#6e6e73;font-size:.9rem}
@@ -45,11 +45,15 @@
               const h=card.querySelector('h2');
               if(h && h.textContent.includes('What this version learns')) card.style.display='none';
             });
-            const predict=document.getElementById('testCard');
-            if(predict){
-              const h2s=[...predict.querySelectorAll('h2')];
-              const first=h2s.find(h=>h.textContent.includes('Body & ski tracking'));
-              if(first) first.textContent='Video tracking';
+
+            const lineStatus=document.getElementById('lineStatus');
+            if(lineStatus && /Train the trick model first/i.test(lineStatus.textContent)){
+              lineStatus.textContent='Pre-trained Ski Trick AI model has not been installed yet.';
+            }
+
+            const vsStatus=document.getElementById('versusStatus');
+            if(vsStatus && /Train the trick model first/i.test(vsStatus.textContent)){
+              vsStatus.textContent='Pre-trained Ski Trick AI model has not been installed yet.';
             }
           });
         <\/script>`;
