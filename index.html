@@ -10,7 +10,7 @@
   </style>
 </head>
 <body>
-  <div class="loader"><strong>Loading Ski Trick AI…</strong><p id="status">Preparing the app.</p></div>
+  <div class="loader"><strong>Loading Ski Trick AI…</strong><p id="status">Preparing line analysis.</p></div>
   <script>
     (async()=>{
       try{
@@ -18,12 +18,48 @@
         const responses=await Promise.all(parts.map(p=>fetch(p,{cache:"no-store"})));
         const failed=responses.findIndex(r=>!r.ok);
         if(failed!==-1) throw new Error(`Could not load ${parts[failed]}`);
-        const html=(await Promise.all(responses.map(r=>r.text()))).join("");
+        let html=(await Promise.all(responses.map(r=>r.text()))).join("");
+
+        html=html
+          .replace('<h1>Ski Trick AI<br>Pose Trainer</h1>','<h1>Ski Trick AI</h1>')
+          .replace(/<p class="sub">[\s\S]*?<\/p>/,'<p class="sub">Upload a ski line, track the skier, identify the tricks, and calculate the score.</p>')
+          .replace('<div class="badge">Pose + LSTM + feedback learning</div>','<div class="badge">AI line tracking + trick scoring</div>')
+          .replace('<a href="#trainingCard">Train</a>','')
+          .replace('<a href="#scoringArea">Points</a>','');
+
+        const publicCss=`<style>
+          #trainingCard{display:none!important}
+          #scoringArea,#scoreList,.scoreGrid,#addScoreBtn,#feedbackPanel{display:none!important}
+          #testCard>hr:first-of-type{display:none!important}
+          .topnav a[href="#testCard"]{display:none!important}
+          .grid{grid-template-columns:1fr!important;max-width:920px;margin:0 auto}
+          header{max-width:920px;margin:0 auto}
+          .publicNote{padding:14px 0;color:#6e6e73;font-size:.9rem}
+        </style>`;
+        html=html.replace('</head>',publicCss+'</head>');
+
+        const publicScript=`<script>
+          window.addEventListener('DOMContentLoaded',()=>{
+            const cards=[...document.querySelectorAll('section.card.notice')];
+            cards.forEach(card=>{
+              const h=card.querySelector('h2');
+              if(h && h.textContent.includes('What this version learns')) card.style.display='none';
+            });
+            const predict=document.getElementById('testCard');
+            if(predict){
+              const h2s=[...predict.querySelectorAll('h2')];
+              const first=h2s.find(h=>h.textContent.includes('Body & ski tracking'));
+              if(first) first.textContent='Video tracking';
+            }
+          });
+        <\/script>`;
+        html=html.replace('</body>',publicScript+'</body>');
+
         document.open();
         document.write(html);
         document.close();
       }catch(err){
-        document.getElementById("status").textContent="The app could not load: "+err.message;
+        document.getElementById('status').textContent='The app could not load: '+err.message;
       }
     })();
   </script>
