@@ -32,9 +32,32 @@
           #trainingCard,#testCard{display:none!important}
           #scoringArea,#scoreList,.scoreGrid,#addScoreBtn,#feedbackPanel{display:none!important}
           .topnav a[href="#trainingCard"],.topnav a[href="#testCard"],.topnav a[href="#scoringArea"]{display:none!important}
-          .grid{grid-template-columns:1fr!important;max-width:920px;margin:0 auto}
-          header{max-width:920px;margin:0 auto}
-          #compareBtn:disabled,#analyzeLineBtn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none!important;transform:none!important}
+
+          .grid{display:none!important}
+          header{max-width:1180px;margin:0 auto}
+
+          #lineAnalysisCard,#versusCard{width:100%;min-width:0}
+          #versusCard .versusGrid{
+            grid-template-columns:minmax(0,1fr) 46px minmax(0,1fr)!important;
+            gap:24px!important;
+            align-items:start;
+          }
+          #versusCard .competitor{min-width:0;overflow:hidden}
+          #versusCard .vsMark{justify-self:center;align-self:center}
+          #versusCard input[type=text],#versusCard input[type=file]{max-width:100%;min-width:0;width:100%}
+          #versusCard input[type=file]{overflow:hidden;text-overflow:ellipsis}
+          #versusCard .compScore{font-size:clamp(1.9rem,4vw,2.5rem)}
+          #versusCard .actions{margin-top:26px}
+          #winnerBox{display:none}
+
+          #compareBtn:disabled,#analyzeLineBtn:disabled{
+            opacity:.45;cursor:not-allowed;box-shadow:none!important;transform:none!important
+          }
+
+          @media(max-width:760px){
+            #versusCard .versusGrid{grid-template-columns:1fr!important;gap:20px!important}
+            #versusCard .vsMark{justify-self:start}
+          }
         </style>`;
         html=html.replace('</head>',publicCss+'</head>');
 
@@ -46,10 +69,19 @@
               if(h && h.textContent.includes('What this version learns')) card.style.display='none';
             });
 
+            const line=document.getElementById('lineAnalysisCard');
+            const versus=document.getElementById('versusCard');
+            if(line && versus && versus.parentNode){
+              versus.parentNode.insertBefore(line,versus);
+            }
+
             const lineStatus=document.getElementById('lineStatus');
             const vsStatus=document.getElementById('versusStatus');
             const compareBtn=document.getElementById('compareBtn');
             const analyzeBtn=document.getElementById('analyzeLineBtn');
+            const winnerBox=document.getElementById('winnerBox');
+
+            if(winnerBox) winnerBox.style.display='none';
             if(compareBtn) compareBtn.disabled=true;
             if(analyzeBtn) analyzeBtn.disabled=true;
             if(lineStatus) lineStatus.textContent='Loading trained Ski Trick AI model...';
@@ -57,7 +89,7 @@
           });
         <\/script>`;
 
-        html=html.replace('</body>',publicScript+'<script src="/public-model.js?v=1"><\/script></body>');
+        html=html.replace('</body>',publicScript+'<script src="/public-model.js?v=2"><\/script></body>');
 
         document.open();
         document.write(html);
