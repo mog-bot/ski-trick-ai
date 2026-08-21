@@ -10,7 +10,10 @@
       return;
     }
 
-    exportBtn.textContent = 'Publish trained AI';
+    // Publishing now happens automatically after every successful training run.
+    // Keep this button hidden as an emergency/manual fallback only.
+    exportBtn.style.display = 'none';
+
     let importStarted = false;
 
     async function waitForTrainerEngine(timeoutMs = 30000) {
@@ -23,7 +26,19 @@
       }
     }
 
-    async function connectAndImport() {
+    async function waitForTrainButton(timeoutMs = 15000) {
+      const started = Date.now();
+      while (true) {
+        const trainBtn = document.getElementById('trainBtn');
+        if (trainBtn && !trainBtn.disabled) return trainBtn;
+        if (Date.now() - started > timeoutMs) {
+          throw new Error('The training dataset imported, but the AI could not start training. Make sure at least two trick folders contain usable videos.');
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+    }
+
+    async function connectImportAndTrain() {
       if (importStarted) return;
       importStarted = true;
       status.textContent = 'Connecting to Supabase and loading the training library...';
@@ -60,28 +75,42 @@
           return;
         }
 
+        if (classes.length < 2) {
+          throw new Error('The AI needs at least two different trick folders before it can train.');
+        }
+
         status.textContent = 'Connected. Found ' + entries.length + ' videos across ' + classes.length + ' trick folders. Preparing automatic import...';
-        debug.textContent = 'Supabase connected successfully. Waiting for the pose-tracking training engine...';
+        debug.textContent = 'Supabase connected successfully. Waiting for the pose-tracking engine...';
         await waitForTrainerEngine();
 
-        status.textContent = 'Importing all ' + entries.length + ' Supabase videos into the AI trainer automatically. This can take a while because each clip is pose-tracked locally.';
-        debug.textContent = 'Automatic cloud import in progress. Keep this page open until it finishes.';
+        status.textContent = 'Importing all ' + entries.length + ' Supabase videos automatically. Each clip is being pose-tracked locally.';
+        debug.textContent = 'Automatic cloud import in progress. Keep this page open.';
         const result = await window.skiTrainerImportRemote(entries);
 
-        status.textContent = 'Cloud dataset ready. Imported ' + result.added + ' videos automatically' + (result.failed ? '; ' + result.failed + ' were skipped because tracking was too weak.' : '.');
-        debug.textContent = 'Now press Train trick model. When training finishes, press Publish trained AI so the public app uses it.';
+        if (!result.added) {
+          throw new Error('None of the Supabase videos produced usable pose-tracking data.');
+        }
+
+        status.textContent = 'Cloud dataset ready. Imported ' + result.added + ' videos' + (result.failed ? '; ' + result.failed + ' were skipped.' : '.') + ' Starting AI training automatically...';
+        debug.textContent = 'No button press is needed. Training will run through 80 epochs and then publish to Supabase automatically.';
+
+        const trainBtn = await waitForTrainButton();
+        trainBtn.click();
+
+        // The main trainer updates this cloud status again after training and automatic publishing complete.
       } catch (err) {
         const message = err && err.name === 'AbortError'
           ? 'The Vercel API did not answer within 15 seconds.'
           : (err.message || String(err));
-        status.textContent = 'Automatic Supabase training import failed: ' + message;
-        debug.textContent = 'Diagnostic: ' + message + '\nReload after checking the latest Vercel deployment and Supabase connection.';
+        status.textContent = 'Automatic training setup failed: ' + message;
+        debug.textContent = 'Diagnostic: ' + message + '\nReload the trainer after checking the Supabase library.';
         importStarted = false;
       } finally {
         clearTimeout(timer);
       }
     }
 
+    // Manual fallback remains wired even though the button is hidden.
     exportBtn.addEventListener('click', async () => {
       try {
         if (typeof window.skiTrainerPublishModel !== 'function') {
@@ -99,7 +128,7 @@
       }
     });
 
-    setTimeout(connectAndImport, 500);
+    setTimeout(connectImportAndTrain, 500);
   }
 
   if (document.readyState === 'loading') {
