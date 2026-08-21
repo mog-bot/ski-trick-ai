@@ -24,12 +24,9 @@
           .supabaseLibrary{margin:0 0 30px;padding:0 0 28px;border-bottom:1px solid #e8e8ed}
           .supabaseGrid{display:grid;gap:0;margin-top:14px;border-top:1px solid #e8e8ed}
           .supabaseClass{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid #e8e8ed}
-          .supabaseActions{display:flex;gap:18px;flex-wrap:wrap;margin-top:20px;margin-bottom:12px}
           .debugBox{margin-top:12px;padding:12px 0;color:#6e6e73;font-size:.82rem;white-space:pre-wrap;border-top:1px solid #e8e8ed}
           .cloudTrainNote{margin-top:10px;color:#6e6e73;font-size:.86rem;line-height:1.5}
 
-          /* Supabase is the only training-video source. Keep the old controls in the DOM
-             for the existing trainer engine, but hide them from the interface. */
           #trainingCard > .sectionEyebrow,
           #trainingCard > h2,
           #trainingCard > .help,
@@ -39,28 +36,24 @@
           #trainFiles,
           #trainingCard > .row,
           #trainingCard > .folderImport,
+          #trainingCard > .actions,
           #importBtn,
-          #importBtn + *,
           #clearBtn,
           #exportBtn,
           #trainBtn{display:none!important}
-          #trainingCard > .actions{display:none!important}
         </style>`;
         html=html.replace('</head>',libraryCss+'</head>');
 
         const libraryHtml=`
           <div class="supabaseLibrary" id="supabaseLibrarySection">
-            <div class="sectionEyebrow">Cloud training</div>
+            <div class="sectionEyebrow">Automatic cloud training</div>
             <h3>Supabase training library</h3>
-            <div class="help">The trainer connects to your private <strong>training videos</strong> bucket and imports every video from every trick folder. Once the dataset is ready, press <strong>Train AI model</strong>.</div>
-            <div class="status" id="supabaseLibraryStatus">Connecting to Supabase automatically…</div>
+            <div class="help">Everything is automatic. The trainer connects to your private <strong>training videos</strong> bucket, imports and pose-tracks every video, trains the AI, and publishes the finished model to Supabase without any button presses.</div>
+            <div class="status" id="supabaseLibraryStatus">Starting automatic training…</div>
             <div class="supabaseGrid" id="supabaseLibraryList"></div>
-            <div class="supabaseActions">
-              <button id="cloudTrainBtn" type="button" disabled>Train AI model</button>
-              <button id="exportTrainedModel" type="button" class="secondary" style="display:none">Publish trained AI</button>
-            </div>
-            <div class="cloudTrainNote">The Train button will turn on after the Supabase videos finish importing and at least two trick classes are ready.</div>
-            <div class="debugBox" id="supabaseDebug">Preparing cloud training library…</div>
+            <div class="cloudTrainNote">Keep this page open until the status says the model has been published successfully.</div>
+            <div class="debugBox" id="supabaseDebug">Preparing automatic cloud training…</div>
+            <button id="exportTrainedModel" type="button" style="display:none">Publish trained AI</button>
           </div>`;
 
         html=html.replace(
@@ -68,7 +61,7 @@
           '<section class="card" id="trainingCard">'+libraryHtml
         );
 
-        html=html.replace('</body>','<script src="/trainer-supabase.js?v=6"><\/script></body>');
+        html=html.replace('</body>','<script src="/trainer-supabase.js?v=7"><\/script></body>');
 
         document.open();
         document.write(html);
