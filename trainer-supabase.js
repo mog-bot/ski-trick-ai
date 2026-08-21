@@ -4,17 +4,15 @@
     const list = document.getElementById('supabaseLibraryList');
     const debug = document.getElementById('supabaseDebug');
     const exportBtn = document.getElementById('exportTrainedModel');
+    const cloudTrainBtn = document.getElementById('cloudTrainBtn');
 
-    if (!status || !list || !debug || !exportBtn) {
+    if (!status || !list || !debug || !exportBtn || !cloudTrainBtn) {
       setTimeout(start, 250);
       return;
     }
 
-    // Publishing now happens automatically after every successful training run.
-    // Keep this button hidden as an emergency/manual fallback only.
-    exportBtn.style.display = 'none';
-
     let importStarted = false;
+    let datasetReady = false;
 
     async function waitForTrainerEngine(timeoutMs = 30000) {
       const started = Date.now();
@@ -26,21 +24,23 @@
       }
     }
 
-    async function waitForTrainButton(timeoutMs = 15000) {
+    async function getRealTrainButton(timeoutMs = 15000) {
       const started = Date.now();
       while (true) {
         const trainBtn = document.getElementById('trainBtn');
         if (trainBtn && !trainBtn.disabled) return trainBtn;
         if (Date.now() - started > timeoutMs) {
-          throw new Error('The training dataset imported, but the AI could not start training. Make sure at least two trick folders contain usable videos.');
+          throw new Error('The training dataset is not ready yet. Make sure at least two trick folders imported successfully.');
         }
         await new Promise(resolve => setTimeout(resolve, 250));
       }
     }
 
-    async function connectImportAndTrain() {
+    async function connectAndImport() {
       if (importStarted) return;
       importStarted = true;
+      datasetReady = false;
+      cloudTrainBtn.disabled = true;
       status.textContent = 'Connecting to Supabase and loading the training library...';
       debug.textContent = 'Reading /api/training-library...';
       list.innerHTML = '';
@@ -79,56 +79,57 @@
           throw new Error('The AI needs at least two different trick folders before it can train.');
         }
 
-        status.textContent = 'Connected. Found ' + entries.length + ' videos across ' + classes.length + ' trick folders. Preparing automatic import...';
-        debug.textContent = 'Supabase connected successfully. Waiting for the pose-tracking engine...';
+        status.textContent = 'Connected. Found ' + entries.length + ' videos across ' + classes.length + ' trick folders. Importing and pose-tracking them now...';
+        debug.textContent = 'Keep this page open while the videos are processed.';
         await waitForTrainerEngine();
 
-        status.textContent = 'Importing all ' + entries.length + ' Supabase videos automatically. Each clip is being pose-tracked locally.';
-        debug.textContent = 'Automatic cloud import in progress. Keep this page open.';
         const result = await window.skiTrainerImportRemote(entries);
+        if (!result.added) throw new Error('None of the Supabase videos produced usable pose-tracking data.');
 
-        if (!result.added) {
-          throw new Error('None of the Supabase videos produced usable pose-tracking data.');
-        }
+        const realTrainBtn = await getRealTrainButton();
+        datasetReady = !!realTrainBtn;
+        cloudTrainBtn.disabled = !datasetReady;
 
-        status.textContent = 'Cloud dataset ready. Imported ' + result.added + ' videos' + (result.failed ? '; ' + result.failed + ' were skipped.' : '.') + ' Starting AI training automatically...';
-        debug.textContent = 'No button press is needed. Training will run through 80 epochs and then publish to Supabase automatically.';
-
-        const trainBtn = await waitForTrainButton();
-        trainBtn.click();
-
-        // The main trainer updates this cloud status again after training and automatic publishing complete.
+        status.textContent = 'Dataset ready. Imported ' + result.added + ' videos' + (result.failed ? '; ' + result.failed + ' were skipped.' : '.') + ' Press Train AI model.';
+        debug.textContent = 'Training is ready. The model will publish to Supabase automatically when training finishes.';
       } catch (err) {
         const message = err && err.name === 'AbortError'
           ? 'The Vercel API did not answer within 15 seconds.'
           : (err.message || String(err));
-        status.textContent = 'Automatic training setup failed: ' + message;
-        debug.textContent = 'Diagnostic: ' + message + '\nReload the trainer after checking the Supabase library.';
+        status.textContent = 'Training setup failed: ' + message;
+        debug.textContent = 'Diagnostic: ' + message;
         importStarted = false;
+        cloudTrainBtn.disabled = true;
       } finally {
         clearTimeout(timer);
       }
     }
 
-    // Manual fallback remains wired even though the button is hidden.
-    exportBtn.addEventListener('click', async () => {
+    cloudTrainBtn.addEventListener('click', async () => {
+      if (!datasetReady) return;
       try {
-        if (typeof window.skiTrainerPublishModel !== 'function') {
-          throw new Error('Train the model first or wait for the trainer to finish loading.');
-        }
-        exportBtn.disabled = true;
-        status.textContent = 'Publishing the trained AI to Supabase...';
-        await window.skiTrainerPublishModel();
-        status.textContent = 'Published. The public Ski Trick AI app can now load this trained model automatically.';
-        debug.textContent = 'Model publish complete. Reload the public app to use the newest trained AI.';
+        cloudTrainBtn.disabled = true;
+        const realTrainBtn = await getRealTrainButton();
+        status.textContent = 'Starting AI training. Leave this page open until all 80 epochs finish.';
+        debug.textContent = 'Training started. After epoch 80, the trainer will publish the model automatically.';
+        realTrainBtn.click();
       } catch (err) {
-        status.textContent = 'Publish failed: ' + err.message;
-      } finally {
-        exportBtn.disabled = false;
+        status.textContent = 'Could not start training: ' + err.message;
+        cloudTrainBtn.disabled = false;
       }
     });
 
-    setTimeout(connectImportAndTrain, 500);
+    exportBtn.addEventListener('click', async () => {
+      try {
+        if (typeof window.skiTrainerPublishModel !== 'function') throw new Error('Train the model first.');
+        await window.skiTrainerPublishModel();
+        status.textContent = 'Published. The public app can now load the trained model.';
+      } catch (err) {
+        status.textContent = 'Publish failed: ' + err.message;
+      }
+    });
+
+    setTimeout(connectAndImport, 500);
   }
 
   if (document.readyState === 'loading') {
