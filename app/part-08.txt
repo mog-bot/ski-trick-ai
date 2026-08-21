@@ -121,6 +121,14 @@ $("importFolderBtn")?.addEventListener("click",async()=>{
   setBusy(false);
 });
 
+window.skiTrainerPoseReady = function(){
+  return !!poseLandmarker;
+};
+
+window.skiTrainerStartTraining = async function(){
+  return await trainCurrentDataset("trainStatus");
+};
+
 window.skiTrainerImportRemote = async function(entries){
   if(!Array.isArray(entries) || !entries.length) throw new Error("No Supabase training videos were supplied.");
   if(!poseLandmarker) throw new Error("The body-tracking model is still loading.");
