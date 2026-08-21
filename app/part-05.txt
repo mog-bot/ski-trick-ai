@@ -108,28 +108,10 @@ async function trainCurrentDataset(statusTarget="trainStatus"){
     });
     xs.dispose();ys.dispose();
     modelDatasetRevision=datasetRevision;
-
-    const trainedMessage=`Model trained on ${classNames.length} tricks: ${classNames.join(", ")}.\nTraining was balanced to ${max} examples per class.`;
-    $(statusTarget).textContent=trainedMessage+"\nPublishing the trained AI automatically…";
+    $(statusTarget).textContent=`Model trained on ${classNames.length} tricks: ${classNames.join(", ")}.\nTraining was balanced to ${max} examples per class.`;
     $("predictStatus").textContent="Ready. Choose a new video.";
     if($("lineStatus")) $("lineStatus").textContent="Ready. Choose a full line video.";
     if($("versusStatus")) $("versusStatus").textContent="Ready. Choose two full line videos.";
-
-    if(typeof window.skiTrainerPublishModel === "function"){
-      try{
-        await window.skiTrainerPublishModel();
-        $(statusTarget).textContent=trainedMessage+"\nPublished automatically. The public Ski Trick AI app now uses this model.";
-        const cloudStatus=document.getElementById("supabaseLibraryStatus");
-        if(cloudStatus) cloudStatus.textContent="Training complete and the newest AI model was published automatically.";
-        const cloudDebug=document.getElementById("supabaseDebug");
-        if(cloudDebug) cloudDebug.textContent="No manual publish step is required. Refresh the public app to use the newest AI.";
-      }catch(publishErr){
-        $(statusTarget).textContent=trainedMessage+"\nAutomatic publish failed: "+publishErr.message+"\nThe model is trained in this tab, but the public app cannot use it until publishing succeeds.";
-      }
-    }else{
-      $(statusTarget).textContent=trainedMessage+"\nAutomatic publish helper was not ready. Reload the trainer and train again.";
-    }
-
     setBusy(false);
     return true;
   }catch(err){
@@ -230,7 +212,7 @@ async function learnFromLastAnalysis(label, source){
   setBusy(true);
   const ok=await trainCurrentDataset("feedbackStatus");
   if(ok){
-    $("feedbackStatus").textContent=`Learned this clip as “${label}”, retrained the model, and published the updated AI automatically.`;
+    $("feedbackStatus").textContent=`Learned this clip as “${label}” and retrained the model. You can test another video now.`;
     lastAnalysis=null;
     $("feedbackPanel").style.display="none";
   }
